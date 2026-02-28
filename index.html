@@ -9,6 +9,8 @@
 <title>WinGYAJMaster – Plataforma de Cursos</title>
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<!-- EmailJS para notificaciones -->
+<script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
 <!-- Firebase SDK -->
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
@@ -291,6 +293,10 @@ tr:hover td{background:rgba(255,255,255,0.02);}
       <!-- STATS -->
       <div class="admin-panel active" id="admin-stats">
         <h2>Dashboard</h2>
+        <div style="background:rgba(61,214,140,0.08);border:1px solid rgba(61,214,140,0.2);border-radius:10px;padding:12px 16px;margin-bottom:1.5rem;font-size:0.85rem;color:var(--success);display:flex;align-items:center;gap:10px;">
+          <span style="font-size:1.2rem">🔥</span>
+          <div><strong>Base de datos Firebase activa.</strong> Todos los estudiantes, pagos y cursos se guardan en la nube — actualizar el código HTML nunca borrará los registros.</div>
+        </div>
         <div class="stats-grid" id="stats-grid"></div>
         <h3 style="margin-bottom:1rem;color:var(--text2);font-size:1rem">Pagos recientes</h3>
         <div class="table-wrap"><table id="recent-payments-table"></table></div>
@@ -362,6 +368,48 @@ tr:hover td{background:rgba(255,255,255,0.02);}
           <div id="cfg-payments-alert" style="margin-top:1rem;"></div>
           <button class="btn btn-gold" style="margin-top:1.25rem;" onclick="savePaymentConfig()">💾 Guardar Métodos de Pago</button>
         </div>
+        <!-- NOTIFICATIONS CONFIG -->
+        <div style="background:var(--bg3);border:1px solid var(--border);border-radius:var(--rad);padding:1.75rem;margin-bottom:1.5rem;">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:1.5rem;padding-bottom:1rem;border-bottom:1px solid var(--border);">
+            <span style="font-size:1.4rem">🔔</span>
+            <div>
+              <div style="font-weight:600;font-size:1rem">Notificaciones</div>
+              <div style="color:var(--text2);font-size:0.82rem">Recibe alertas en tu correo y WhatsApp cuando un estudiante se inscriba</div>
+            </div>
+          </div>
+          <div style="background:rgba(79,163,224,0.08);border:1px solid rgba(79,163,224,0.2);border-radius:10px;padding:1rem;margin-bottom:1.25rem;font-size:0.85rem;color:#4FA3E0;line-height:1.6;">
+            <strong>📋 Configuración rápida (2 pasos):</strong><br>
+            <strong>Email:</strong> Crea cuenta gratis en <a href="https://www.emailjs.com" target="_blank" style="color:#4FA3E0">emailjs.com</a> → conecta tu Gmail → crea un template → copia los 3 IDs.<br>
+            <strong>WhatsApp:</strong> Envía el mensaje <strong>"I allow callmebot to send me messages"</strong> al número <strong>+34 644 38 50 28</strong> en WhatsApp → recibirás tu API key.
+          </div>
+          <!-- EmailJS -->
+          <div style="background:var(--bg4);border:1px solid var(--border);border-radius:10px;padding:1.25rem;margin-bottom:1rem;">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:1rem;font-weight:600;">
+              <span>📧</span> Email (EmailJS)
+              <span id="emailjs-status" style="font-size:0.75rem;margin-left:auto;color:var(--text2)">No configurado</span>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem;">
+              <div class="form-group" style="margin:0;"><label>Service ID</label><input type="text" id="cfg-ejs-service" placeholder="service_xxxxxxx" maxlength="60"></div>
+              <div class="form-group" style="margin:0;"><label>Template ID</label><input type="text" id="cfg-ejs-template" placeholder="template_xxxxxxx" maxlength="60"></div>
+            </div>
+            <div class="form-group" style="margin-top:0.75rem;margin-bottom:0;"><label>Public Key (User ID)</label><input type="text" id="cfg-ejs-pubkey" placeholder="XXXXXXXXXXXXXXX" maxlength="60"></div>
+          </div>
+          <!-- WhatsApp Callmebot -->
+          <div style="background:var(--bg4);border:1px solid var(--border);border-radius:10px;padding:1.25rem;margin-bottom:1rem;">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:1rem;font-weight:600;">
+              <span>💬</span> WhatsApp (Callmebot)
+              <span id="whatsapp-status" style="font-size:0.75rem;margin-left:auto;color:var(--text2)">No configurado</span>
+            </div>
+            <div class="form-group" style="margin:0;"><label>API Key de Callmebot</label><input type="text" id="cfg-callmebot-key" placeholder="1234567" maxlength="20"></div>
+            <p style="color:var(--text2);font-size:0.78rem;margin-top:6px;">El número receptor es fijo: <strong style="color:var(--text)">942006492</strong></p>
+          </div>
+          <div id="cfg-notif-alert" style="margin-top:0.5rem;"></div>
+          <div style="display:flex;gap:1rem;margin-top:1rem;flex-wrap:wrap;">
+            <button class="btn btn-gold" onclick="saveNotifConfig()">💾 Guardar Notificaciones</button>
+            <button class="btn btn-outline btn-sm" onclick="testNotifications()">🧪 Enviar prueba</button>
+          </div>
+        </div>
+
         <div style="background:var(--bg3);border:1px solid var(--border);border-radius:var(--rad);padding:1.75rem;">
           <div style="display:flex;align-items:center;gap:10px;margin-bottom:1.5rem;padding-bottom:1rem;border-bottom:1px solid var(--border);">
             <span style="font-size:1.4rem">🔒</span>
@@ -425,6 +473,29 @@ tr:hover td{background:rgba(255,255,255,0.02);}
   </div>
 </div>
 
+<!-- EDIT STUDENT MODAL -->
+<div class="modal-overlay" id="edit-student-modal">
+  <div class="modal" style="max-width:460px">
+    <button class="modal-close" onclick="closeModal('edit-student-modal')">✕</button>
+    <h2>✏️ Editar Estudiante</h2>
+    <p class="sub">Corrige el nombre o correo del estudiante.</p>
+    <input type="hidden" id="edit-student-id">
+    <div class="form-group">
+      <label>Nombre completo</label>
+      <input type="text" id="edit-student-name" placeholder="Nombre completo" maxlength="100">
+    </div>
+    <div class="form-group">
+      <label>Correo electrónico</label>
+      <input type="email" id="edit-student-email" placeholder="correo@ejemplo.com" maxlength="150">
+    </div>
+    <div id="edit-student-alert"></div>
+    <div style="display:flex;gap:1rem;margin-top:1rem">
+      <button class="btn btn-gold" style="flex:1" onclick="saveStudentEdit()">💾 Guardar Cambios</button>
+      <button class="btn btn-outline" onclick="closeModal('edit-student-modal')">Cancelar</button>
+    </div>
+  </div>
+</div>
+
 <!-- IMAGE PREVIEW MODAL -->
 <div class="modal-overlay" id="img-preview-modal">
   <div class="modal" style="max-width:700px;background:var(--bg2)">
@@ -462,12 +533,12 @@ tr:hover td{background:rgba(255,255,255,0.02);}
 //  7. Guarda el archivo y súbelo a GitHub
 // ══════════════════════════════════════════════════════════════
 const firebaseConfig = {
-  apiKey: "AIzaSyAIN6CGAHbiUjJqUe2vQDbcmR1njrYwxoI",
+  apiKey: "PEGA_AQUI_TU_apiKey",
   authDomain: "wingyajmaster.firebaseapp.com",
   projectId: "wingyajmaster",
   storageBucket: "wingyajmaster.firebasestorage.app",
-  messagingSenderId: "1:55931230816:web:db07b14b3f8441d2a50105",
-  appId: "G-2WNTDGDKGE"
+  messagingSenderId: "PEGA_AQUI_TU_messagingSenderId",
+  appId: "PEGA_AQUI_TU_appId"
 };
 
 firebase.initializeApp(firebaseConfig);
@@ -778,6 +849,9 @@ async function submitPayment() {
     closeModal('payment-modal');
     showToast('✅ Solicitud enviada. El admin revisará tu pago pronto.','success');
     renderCoursesGrid();
+    // Send notifications
+    const notifCourse=CACHE.courses.find(c=>c.id===courseId);
+    sendEnrollmentNotification(name, email, notifCourse?notifCourse.name:'', notifCourse?notifCourse.price:0);
   } else {
     showAlert('payment-modal-alert','Error al enviar. Intenta de nuevo.','error');
   }
@@ -1205,17 +1279,59 @@ function renderCoursesAdmin(){
 
 function renderStudentsTable(){
   const t=document.getElementById('students-table');
-  t.innerHTML='<tr><th>Nombre</th><th>Correo</th><th>Cursos aprobados</th><th>Registro</th></tr>';
-  if(!CACHE.students.length){ t.innerHTML+='<tr><td colspan="4" style="text-align:center;color:var(--text2);padding:2rem">Sin estudiantes aún</td></tr>'; return; }
+  t.innerHTML='<tr><th>Nombre</th><th>Correo</th><th>Cursos aprobados</th><th>Registro</th><th>Acciones</th></tr>';
+  if(!CACHE.students.length){ t.innerHTML+='<tr><td colspan="5" style="text-align:center;color:var(--text2);padding:2rem">Sin estudiantes aún</td></tr>'; return; }
   CACHE.students.forEach(s=>{
     const approved=CACHE.payments.filter(p=>p.studentId===s.id&&p.status==='approved').length;
     t.innerHTML+=`<tr>
-      <td>${SEC.sanitize(s.name||'')}</td>
-      <td>${SEC.sanitize(s.email||'')}</td>
+      <td><span id="sname-${s.id}">${SEC.sanitize(s.name||'')}</span></td>
+      <td style="font-size:0.85rem"><span id="semail-${s.id}">${SEC.sanitize(s.email||'')}</span></td>
       <td>${approved} curso${approved!==1?'s':''}</td>
       <td>${new Date(s.joinDate||Date.now()).toLocaleDateString('es-PE')}</td>
+      <td><button class="btn btn-outline btn-sm" onclick="openEditStudent('${s.id}')">✏ Editar</button></td>
     </tr>`;
   });
+}
+
+function openEditStudent(sid){
+  if(!requireAdmin()) return;
+  const s=CACHE.students.find(s=>s.id===sid); if(!s) return;
+  document.getElementById('edit-student-id').value=sid;
+  document.getElementById('edit-student-name').value=s.name||'';
+  document.getElementById('edit-student-email').value=s.email||'';
+  document.getElementById('edit-student-alert').innerHTML='';
+  showModal('edit-student-modal');
+}
+
+async function saveStudentEdit(){
+  if(!requireAdmin()) return;
+  const sid=document.getElementById('edit-student-id').value;
+  const name=SEC.str(document.getElementById('edit-student-name').value,100);
+  const email=SEC.str(document.getElementById('edit-student-email').value,150);
+  if(!name){ showAlert('edit-student-alert','El nombre no puede estar vacío.','error'); return; }
+  if(!SEC.email(email)){ showAlert('edit-student-alert','Ingresa un correo válido.','error'); return; }
+
+  const btn=document.querySelector('#edit-student-modal .btn-gold');
+  if(btn){ btn.disabled=true; btn.textContent='Guardando...'; }
+
+  // Update in Firebase
+  await fsUpdate('students', sid, {name, email});
+
+  // Update local cache
+  const s=CACHE.students.find(s=>s.id===sid);
+  if(s){ s.name=name; s.email=email; }
+
+  // Also update payments with this studentId
+  const studentPayments=CACHE.payments.filter(p=>p.studentId===sid);
+  for(const p of studentPayments){
+    await fsUpdate('payments', p.id, {name, email});
+    p.name=name; p.email=email;
+  }
+
+  if(btn){ btn.disabled=false; btn.textContent='💾 Guardar Cambios'; }
+  closeModal('edit-student-modal');
+  renderStudentsTable();
+  showToast(`✅ Datos de ${name} actualizados en todos los registros.`,'success');
 }
 
 // ══════════════════════════════════════════════
@@ -1370,6 +1486,23 @@ function loadConfigPanel(){
   document.getElementById('cfg-pass-confirm').value='';
   document.getElementById('cfg-payments-alert').innerHTML='';
   document.getElementById('cfg-pass-alert').innerHTML='';
+  // Notificaciones
+  document.getElementById('cfg-ejs-service').value=cfg.ejs_service||'';
+  document.getElementById('cfg-ejs-template').value=cfg.ejs_template||'';
+  document.getElementById('cfg-ejs-pubkey').value=cfg.ejs_pubkey||'';
+  document.getElementById('cfg-callmebot-key').value=cfg.callmebot_key||'';
+  document.getElementById('cfg-notif-alert').innerHTML='';
+  updateNotifStatus();
+}
+
+function updateNotifStatus(){
+  const cfg=CACHE.config;
+  const ejsOk=!!(cfg.ejs_service&&cfg.ejs_template&&cfg.ejs_pubkey);
+  const waOk=!!cfg.callmebot_key;
+  const ejsEl=document.getElementById('emailjs-status');
+  const waEl=document.getElementById('whatsapp-status');
+  if(ejsEl) ejsEl.innerHTML=ejsOk?'<span style="color:var(--success)">✅ Configurado</span>':'<span style="color:var(--text2)">No configurado</span>';
+  if(waEl) waEl.innerHTML=waOk?'<span style="color:var(--success)">✅ Configurado</span>':'<span style="color:var(--text2)">No configurado</span>';
 }
 async function savePaymentConfig(){
   if(!requireAdmin()) return;
@@ -1387,6 +1520,70 @@ async function savePaymentConfig(){
   showAlert('cfg-payments-alert','✅ Métodos de pago guardados.','success');
   showToast('✅ Configuración actualizada.','success');
 }
+async function saveNotifConfig(){
+  if(!requireAdmin()) return;
+  const ejs_service=SEC.str(document.getElementById('cfg-ejs-service').value,60);
+  const ejs_template=SEC.str(document.getElementById('cfg-ejs-template').value,60);
+  const ejs_pubkey=SEC.str(document.getElementById('cfg-ejs-pubkey').value,60);
+  const callmebot_key=SEC.str(document.getElementById('cfg-callmebot-key').value,20);
+  CACHE.config={...CACHE.config,ejs_service,ejs_template,ejs_pubkey,callmebot_key};
+  await fsUpdate('config','main',{ejs_service,ejs_template,ejs_pubkey,callmebot_key});
+  updateNotifStatus();
+  showAlert('cfg-notif-alert','✅ Configuración de notificaciones guardada.','success');
+  showToast('🔔 Notificaciones configuradas.','success');
+}
+
+async function sendEnrollmentNotification(studentName, studentEmail, courseName, coursePrice){
+  const cfg=CACHE.config;
+  const dateStr=new Date().toLocaleString('es-PE');
+  const msg=`🎓 NUEVA INSCRIPCIÓN - WinGYAJMaster
+
+Estudiante: ${studentName}
+Correo: ${studentEmail}
+Curso: ${courseName}
+Monto: S/ ${parseFloat(coursePrice||0).toFixed(2)}
+Fecha: ${dateStr}
+
+⏳ Revisar comprobante en el panel admin.`;
+
+  // ── Email via EmailJS ──
+  if(cfg.ejs_service && cfg.ejs_template && cfg.ejs_pubkey){
+    try{
+      if(!window._ejsInit){
+        emailjs.init(cfg.ejs_pubkey);
+        window._ejsInit=true;
+      }
+      await emailjs.send(cfg.ejs_service, cfg.ejs_template, {
+        to_email: 'wmps090225@gmail.com',
+        to_name: 'Administrador WinGYAJMaster',
+        student_name: studentName,
+        student_email: studentEmail,
+        course_name: courseName,
+        course_price: `S/ ${parseFloat(coursePrice||0).toFixed(2)}`,
+        date: dateStr,
+        message: msg
+      });
+      console.log('Email notification sent');
+    }catch(e){ console.warn('EmailJS error:',e); }
+  }
+
+  // ── WhatsApp via Callmebot ──
+  if(cfg.callmebot_key){
+    try{
+      const encoded=encodeURIComponent(msg);
+      const url=`https://api.callmebot.com/whatsapp.php?phone=51942006492&text=${encoded}&apikey=${cfg.callmebot_key}`;
+      await fetch(url, {mode:'no-cors'});
+      console.log('WhatsApp notification sent');
+    }catch(e){ console.warn('Callmebot error:',e); }
+  }
+}
+
+async function testNotifications(){
+  if(!requireAdmin()) return;
+  await sendEnrollmentNotification('Estudiante de Prueba','test@ejemplo.com','Curso de Prueba','99.90');
+  showToast('🧪 Notificación de prueba enviada. Revisa tu correo y WhatsApp.','success');
+}
+
 async function saveAdminPassword(){
   if(!requireAdmin()) return;
   if(!SEC.rateLimit('cfg_pass',5,120000)){ showToast('Demasiados intentos.','error'); return; }
