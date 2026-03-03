@@ -507,17 +507,52 @@ tr:hover td{background:rgba(255,255,255,0.02);}
         <div style="background:var(--bg3);border:1px solid var(--border);border-radius:var(--rad);padding:1.5rem;margin-bottom:1.5rem;">
           <strong style="display:block;margin-bottom:1rem">Agregar Nuevo Docente</strong>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem">
-            <div class="form-group" style="margin:0"><label>Nombre completo</label><input type="text" id="tc-name" placeholder="Nombre del docente" maxlength="100"></div>
-            <div class="form-group" style="margin:0"><label>Usuario</label><input type="text" id="tc-user" placeholder="usuario_docente" maxlength="50"></div>
+            <div class="form-group" style="margin:0">
+              <label>Nombre completo <span style="color:var(--error)">*</span></label>
+              <input type="text" id="tc-name" placeholder="Ej: Carlos Mendoza Torres" maxlength="100" autocomplete="off">
+            </div>
+            <div class="form-group" style="margin:0">
+              <label>Usuario <span style="color:var(--error)">*</span></label>
+              <input type="text" id="tc-user" placeholder="Ej: carlos.mendoza" maxlength="50" autocomplete="off">
+              <p style="color:var(--text2);font-size:0.75rem;margin-top:3px">Sin espacios ni caracteres especiales</p>
+            </div>
           </div>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-top:1rem">
-            <div class="form-group" style="margin:0"><label>Contraseña</label><input type="password" id="tc-pass" placeholder="••••••••" maxlength="100"></div>
-            <div class="form-group" style="margin:0"><label>Cursos asignados</label>
-              <select id="tc-courses" multiple style="min-height:80px"></select>
+            <div class="form-group" style="margin:0">
+              <label>Contraseña <span style="color:var(--error)">*</span></label>
+              <div style="position:relative">
+                <input type="password" id="tc-pass" placeholder="Ej: Docente2024#" maxlength="100"
+                       autocomplete="new-password" oninput="checkPassStrength(this.value)"
+                       style="padding-right:40px">
+                <button type="button" onclick="togglePassVis('tc-pass',this)"
+                  style="position:absolute;right:8px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--text2);font-size:1rem;padding:4px">👁</button>
+              </div>
+              <!-- Strength bar -->
+              <div style="margin-top:6px;display:flex;gap:4px" id="tc-pass-bars">
+                <div id="tcb1" style="height:4px;flex:1;border-radius:2px;background:var(--bg4);transition:background .3s"></div>
+                <div id="tcb2" style="height:4px;flex:1;border-radius:2px;background:var(--bg4);transition:background .3s"></div>
+                <div id="tcb3" style="height:4px;flex:1;border-radius:2px;background:var(--bg4);transition:background .3s"></div>
+                <div id="tcb4" style="height:4px;flex:1;border-radius:2px;background:var(--bg4);transition:background .3s"></div>
+              </div>
+              <div id="tc-pass-hint" style="font-size:0.73rem;margin-top:4px;color:var(--text2);line-height:1.5">
+                Debe tener: mín. 8 caracteres · 1 mayúscula · 1 número · 1 símbolo (ej: # @ ! $)
+              </div>
+              <!-- Requirements checklist -->
+              <div id="tc-pass-reqs" style="margin-top:6px;display:grid;grid-template-columns:1fr 1fr;gap:2px 8px;font-size:0.73rem">
+                <span id="req-len"  style="color:var(--text2)">⬜ Mín. 8 caracteres</span>
+                <span id="req-up"   style="color:var(--text2)">⬜ 1 mayúscula (A-Z)</span>
+                <span id="req-num"  style="color:var(--text2)">⬜ 1 número (0-9)</span>
+                <span id="req-sym"  style="color:var(--text2)">⬜ 1 símbolo (#@!$...)</span>
+              </div>
+            </div>
+            <div class="form-group" style="margin:0">
+              <label>Cursos asignados <span style="color:var(--text2);font-size:0.75rem">(Ctrl+clic para varios)</span></label>
+              <select id="tc-courses" multiple style="min-height:100px;width:100%"></select>
+              <p id="tc-courses-hint" style="color:var(--text2);font-size:0.75rem;margin-top:3px">Opcional — puedes asignar cursos después</p>
             </div>
           </div>
           <div id="tc-alert" style="margin-top:0.75rem"></div>
-          <button class="btn btn-info" style="margin-top:1rem;background:var(--info);color:#fff" onclick="saveTeacher()">➕ Agregar Docente</button>
+          <button class="btn btn-info" id="tc-save-btn" style="margin-top:1rem;background:var(--info);color:#fff" onclick="saveTeacher()">➕ Agregar Docente</button>
         </div>
         <div class="table-wrap"><table id="teachers-table"></table></div>
       </div>
@@ -1891,30 +1926,144 @@ function renderTeachersTable(){
 
 function populateTeacherCoursesSelect(){
   const sel=document.getElementById('tc-courses'); if(!sel) return;
-  sel.innerHTML=CACHE.courses.map(c=>`<option value="${c.id}">${SEC.sanitize(c.name)}</option>`).join('');
+  if(!CACHE.courses.length){
+    sel.innerHTML='<option disabled value="">— No hay cursos creados aún —</option>';
+    const hint=document.getElementById('tc-courses-hint');
+    if(hint) hint.textContent='Primero crea cursos desde "Nuevo Curso".';
+    return;
+  }
+  // Group by area
+  const eng=CACHE.courses.filter(c=>(c.area||'engineering')==='engineering');
+  const edu=CACHE.courses.filter(c=>c.area==='education');
+  let html='';
+  if(eng.length){ html+=`<optgroup label="⚙️ Ingeniería y Desarrollo">`; eng.forEach(c=>{ html+=`<option value="${c.id}">${SEC.sanitize(c.name)}</option>`; }); html+=`</optgroup>`; }
+  if(edu.length){ html+=`<optgroup label="📚 Educación y Ciencias">`; edu.forEach(c=>{ html+=`<option value="${c.id}">${SEC.sanitize(c.name)}</option>`; }); html+=`</optgroup>`; }
+  sel.innerHTML=html;
+  const hint=document.getElementById('tc-courses-hint');
+  if(hint) hint.textContent='Mantén Ctrl (o Cmd en Mac) para seleccionar varios.';
+}
+
+// ── Password strength helpers ──────────────────────────────────
+function validateTeacherPass(pass){
+  return {
+    len: pass.length >= 8,
+    upper: /[A-Z]/.test(pass),
+    num:   /[0-9]/.test(pass),
+    sym:   /[^A-Za-z0-9]/.test(pass)
+  };
+}
+
+function checkPassStrength(pass){
+  const v = validateTeacherPass(pass);
+  const score = [v.len, v.upper, v.num, v.sym].filter(Boolean).length;
+  const colors = ['','var(--error)','#FF9800','var(--gold)','var(--success)'];
+  const labels = ['','Muy débil','Débil','Buena','Fuerte 🔒'];
+  for(let i=1;i<=4;i++){
+    const bar=document.getElementById('tcb'+i);
+    if(bar) bar.style.background = i<=score ? colors[score] : 'var(--bg4)';
+  }
+  const hint=document.getElementById('tc-pass-hint');
+  if(hint && pass.length>0) hint.innerHTML=`<span style="color:${colors[score]||'var(--text2)'};font-weight:600">${labels[score]||''}</span>`;
+  else if(hint) hint.textContent='Debe tener: mín. 8 caracteres · 1 mayúscula · 1 número · 1 símbolo';
+  // Checklist
+  const set=(id,ok)=>{ const el=document.getElementById(id); if(el){ el.textContent=el.textContent.slice(2); el.textContent=(ok?'✅ ':'⬜ ')+el.textContent; el.style.color=ok?'var(--success)':'var(--text2)'; } };
+  const el_len=document.getElementById('req-len'); if(el_len){ el_len.innerHTML=(v.len?'✅':'⬜')+' Mín. 8 caracteres'; el_len.style.color=v.len?'var(--success)':'var(--text2)'; }
+  const el_up=document.getElementById('req-up');   if(el_up){  el_up.innerHTML=(v.upper?'✅':'⬜')+' 1 mayúscula (A-Z)'; el_up.style.color=v.upper?'var(--success)':'var(--text2)'; }
+  const el_num=document.getElementById('req-num'); if(el_num){ el_num.innerHTML=(v.num?'✅':'⬜')+' 1 número (0-9)'; el_num.style.color=v.num?'var(--success)':'var(--text2)'; }
+  const el_sym=document.getElementById('req-sym'); if(el_sym){ el_sym.innerHTML=(v.sym?'✅':'⬜')+' 1 símbolo (#@!$...)'; el_sym.style.color=v.sym?'var(--success)':'var(--text2)'; }
+}
+
+function togglePassVis(inputId, btn){
+  const el=document.getElementById(inputId); if(!el) return;
+  el.type = el.type==='password' ? 'text' : 'password';
+  btn.textContent = el.type==='password' ? '👁' : '🙈';
 }
 
 async function saveTeacher(){
   if(!requireAdmin()) return;
-  const name=SEC.str(document.getElementById('tc-name').value,100);
-  const username=SEC.str(document.getElementById('tc-user').value,50);
-  const pass=SEC.str(document.getElementById('tc-pass').value,100);
-  const sel=document.getElementById('tc-courses');
-  const courses=[...sel.selectedOptions].map(o=>o.value);
-  if(!name||!username||!pass){ showAlert('tc-alert','Completa todos los campos.','error'); return; }
-  if(pass.length<6){ showAlert('tc-alert','La contraseña debe tener al menos 6 caracteres.','error'); return; }
-  if(CACHE.teachers.find(t=>t.username===username)){ showAlert('tc-alert','Ya existe un docente con ese usuario.','error'); return; }
-  const tcData={name,username,passwordHash:SEC._hash(pass),courses,createdAt:new Date().toISOString()};
-  const tcId=await fsAdd('teachers',tcData);
-  if(tcId){
-    CACHE.teachers.push({id:tcId,...tcData});
-    document.getElementById('tc-name').value='';
-    document.getElementById('tc-user').value='';
-    document.getElementById('tc-pass').value='';
-    renderTeachersTable();
-    showToast(`✅ Docente ${name} agregado.`,'success');
-    showAlert('tc-alert','','error');
-  } else { showAlert('tc-alert','Error al guardar. Intenta de nuevo.','error'); }
+
+  // Read values safely
+  const nameEl=document.getElementById('tc-name');
+  const userEl=document.getElementById('tc-user');
+  const passEl=document.getElementById('tc-pass');
+  const selEl =document.getElementById('tc-courses');
+  const btn   =document.getElementById('tc-save-btn');
+
+  if(!nameEl||!userEl||!passEl||!selEl){
+    showAlert('tc-alert','❌ Error interno: no se encontraron los campos del formulario.','error');
+    return;
+  }
+
+  const name    = SEC.str(nameEl.value, 100);
+  const username= SEC.str(userEl.value, 50).toLowerCase().replace(/\s+/g,'');
+  const pass    = passEl.value.trim();  // raw pass, no truncation before hashing
+  const courses = [...selEl.selectedOptions].map(o=>o.value);
+
+  // Validations
+  if(!name){
+    showAlert('tc-alert','⚠️ Ingresa el nombre completo del docente.','error');
+    nameEl.focus(); return;
+  }
+  if(!username || username.length < 3){
+    showAlert('tc-alert','⚠️ El usuario debe tener al menos 3 caracteres y no puede contener espacios.','error');
+    userEl.focus(); return;
+  }
+  if(!/^[a-z0-9._-]+$/.test(username)){
+    showAlert('tc-alert','⚠️ El usuario solo puede contener letras minúsculas, números, puntos, guiones y guiones bajos.','error');
+    userEl.focus(); return;
+  }
+  if(!pass){
+    showAlert('tc-alert','⚠️ Ingresa una contraseña.','error');
+    passEl.focus(); return;
+  }
+
+  // Password strength validation
+  const pv = validateTeacherPass(pass);
+  if(!pv.len)  { showAlert('tc-alert','🔒 La contraseña debe tener al menos 8 caracteres.','error'); passEl.focus(); return; }
+  if(!pv.upper){ showAlert('tc-alert','🔒 La contraseña debe incluir al menos una letra mayúscula (A-Z).','error'); passEl.focus(); return; }
+  if(!pv.num)  { showAlert('tc-alert','🔒 La contraseña debe incluir al menos un número (0-9).','error'); passEl.focus(); return; }
+  if(!pv.sym)  { showAlert('tc-alert','🔒 La contraseña debe incluir al menos un símbolo (ej: # @ ! $ % &).','error'); passEl.focus(); return; }
+
+  // Duplicate username check
+  if(CACHE.teachers.find(t=>t.username===username)){
+    showAlert('tc-alert',`⚠️ Ya existe un docente con el usuario "${username}". Elige otro.`,'error');
+    userEl.focus(); return;
+  }
+
+  // Disable button while saving
+  if(btn){ btn.disabled=true; btn.textContent='Guardando...'; }
+  showAlert('tc-alert','','error');
+
+  try{
+    const tcData={
+      name: SEC.str(name,100),
+      username,
+      passwordHash: SEC._hash(pass),
+      courses,
+      createdAt: new Date().toISOString()
+    };
+    const tcId = await fsAdd('teachers', tcData);
+    if(tcId){
+      CACHE.teachers.push({id:tcId,...tcData});
+      // Clear form
+      nameEl.value=''; userEl.value=''; passEl.value='';
+      // Reset strength bars
+      for(let i=1;i<=4;i++){ const b=document.getElementById('tcb'+i); if(b) b.style.background='var(--bg4)'; }
+      checkPassStrength('');
+      // Deselect all options
+      [...selEl.options].forEach(o=>o.selected=false);
+      renderTeachersTable();
+      showToast(`✅ Docente "${name}" agregado correctamente.`,'success');
+      showAlert('tc-alert',`✅ Docente <strong>${SEC.sanitize(name)}</strong> creado. Usuario: <strong>${SEC.sanitize(username)}</strong>`,'success',true);
+    } else {
+      showAlert('tc-alert','❌ Error al guardar en Firebase. Verifica tu conexión e intenta de nuevo.','error');
+    }
+  } catch(e){
+    console.error('saveTeacher error:',e);
+    showAlert('tc-alert',`❌ Error inesperado: ${SEC.sanitize(e.message||'desconocido')}. Intenta de nuevo.`,'error');
+  }
+
+  if(btn){ btn.disabled=false; btn.textContent='➕ Agregar Docente'; }
 }
 
 function confirmDeleteTeacher(tcId){
@@ -2216,7 +2365,7 @@ async function saveAdminPassword(){
 function showModal(id){ document.getElementById(id).classList.add('open'); }
 function closeModal(id){ document.getElementById(id).classList.remove('open'); }
 document.querySelectorAll('.modal-overlay').forEach(m=>{ m.addEventListener('click',e=>{ if(e.target===m) m.classList.remove('open'); }); });
-function showAlert(cId,msg,type='error'){ const el=document.getElementById(cId); if(el) el.innerHTML=msg?`<div class="alert alert-${type}">${SEC.sanitize(msg)}</div>`:''; }
+function showAlert(cId,msg,type='error',isHtml=false){ const el=document.getElementById(cId); if(el) el.innerHTML=msg?`<div class="alert alert-${type}">${isHtml?msg:SEC.sanitize(msg)}</div>`:''; }
 function showToast(msg,type='success'){
   const c=document.getElementById('toast-container');
   const t=document.createElement('div'); t.className=`toast ${type}`;
