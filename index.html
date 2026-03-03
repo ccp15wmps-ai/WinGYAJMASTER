@@ -899,15 +899,15 @@ async function fsSet(col, docId, data) {
 }
 async function fsAdd(col, data) {
   try { const ref=await db.collection(col).add(data); return ref.id; }
-  catch(e) { console.error('fsAdd',e); return null; }
+  catch(e) { console.error('fsAdd',e); throw e; }
 }
 async function fsUpdate(col, docId, data) {
   try { await db.collection(col).doc(docId).update(data); return true; }
-  catch(e) { console.error('fsUpdate',e); return false; }
+  catch(e) { console.error('fsUpdate',e); throw e; }
 }
 async function fsDelete(col, docId) {
   try { await db.collection(col).doc(docId).delete(); return true; }
-  catch(e) { console.error('fsDelete',e); return false; }
+  catch(e) { console.error('fsDelete',e); throw e; }
 }
 async function fsList(col) {
   try { const snap=await db.collection(col).get(); return snap.docs.map(d=>({id:d.id,...d.data()})); }
@@ -1805,16 +1805,20 @@ function previewImg(payId){
 async function approvePayment(payId){
   if(!requireAdmin()) return;
   const p=CACHE.payments.find(p=>p.id===payId); if(!p) return;
-  await fsUpdate('payments',payId,{status:'approved'});
-  p.status='approved'; renderPaymentsTable(); renderStats();
-  showToast(`✅ Pago de ${p.name} aprobado.`,'success');
+  try{
+    await fsUpdate('payments',payId,{status:'approved'});
+    p.status='approved'; renderPaymentsTable(); renderStats();
+    showToast(`✅ Pago de ${p.name} aprobado.`,'success');
+  }catch(e){ showFirebasePermError('pago'); }
 }
 async function rejectPayment(payId){
   if(!requireAdmin()) return;
   const p=CACHE.payments.find(p=>p.id===payId); if(!p) return;
-  await fsUpdate('payments',payId,{status:'rejected'});
-  p.status='rejected'; renderPaymentsTable(); renderStats();
-  showToast('Pago rechazado.','error');
+  try{
+    await fsUpdate('payments',payId,{status:'rejected'});
+    p.status='rejected'; renderPaymentsTable(); renderStats();
+    showToast('Pago rechazado.','error');
+  }catch(e){ showFirebasePermError('pago'); }
 }
 
 function renderCoursesAdmin(){
@@ -2043,24 +2047,33 @@ async function saveTeacher(){
       createdAt: new Date().toISOString()
     };
     const tcId = await fsAdd('teachers', tcData);
-    if(tcId){
-      CACHE.teachers.push({id:tcId,...tcData});
-      // Clear form
-      nameEl.value=''; userEl.value=''; passEl.value='';
-      // Reset strength bars
-      for(let i=1;i<=4;i++){ const b=document.getElementById('tcb'+i); if(b) b.style.background='var(--bg4)'; }
-      checkPassStrength('');
-      // Deselect all options
-      [...selEl.options].forEach(o=>o.selected=false);
-      renderTeachersTable();
-      showToast(`✅ Docente "${name}" agregado correctamente.`,'success');
-      showAlert('tc-alert',`✅ Docente <strong>${SEC.sanitize(name)}</strong> creado. Usuario: <strong>${SEC.sanitize(username)}</strong>`,'success',true);
-    } else {
-      showAlert('tc-alert','❌ Error al guardar en Firebase. Verifica tu conexión e intenta de nuevo.','error');
-    }
+    CACHE.teachers.push({id:tcId,...tcData});
+    // Clear form
+    nameEl.value=''; userEl.value=''; passEl.value='';
+    for(let i=1;i<=4;i++){ const b=document.getElementById('tcb'+i); if(b) b.style.background='var(--bg4)'; }
+    checkPassStrength('');
+    [...selEl.options].forEach(o=>o.selected=false);
+    renderTeachersTable();
+    showToast(`✅ Docente "${name}" agregado correctamente.`,'success');
+    showAlert('tc-alert',`✅ Docente <strong>${SEC.sanitize(name)}</strong> creado. Usuario: <strong>${SEC.sanitize(username)}</strong>`,'success',true);
   } catch(e){
     console.error('saveTeacher error:',e);
-    showAlert('tc-alert',`❌ Error inesperado: ${SEC.sanitize(e.message||'desconocido')}. Intenta de nuevo.`,'error');
+    const msg=(e.message||'').toLowerCase();
+    const isPerms=msg.includes('permission')||msg.includes('missing or insufficient')||msg.includes('insufficient');
+    if(isPerms){
+      showAlert('tc-alert',
+        '🔒 <strong>Error de permisos en Firestore</strong> — Las reglas de seguridad están bloqueando la escritura.<br><br>'+
+        '<strong>✅ Solución rápida (2 min):</strong><br>'+
+        '1. Ve a <a href="https://console.firebase.google.com" target="_blank" style="color:#4FA3E0;text-decoration:underline">console.firebase.google.com</a><br>'+
+        '2. Abre tu proyecto → <strong>Firestore Database</strong> → pestaña <strong>Reglas</strong><br>'+
+        '3. Reemplaza todo con las reglas del cuadro de abajo → clic en <strong>Publicar</strong><br>'+
+        '4. Recarga esta página e intenta de nuevo.<br><br>'+
+        '<code style="display:block;background:#0B0B0F;border:1px solid #2E2E3A;padding:10px;border-radius:6px;font-size:0.8rem;line-height:1.7;color:#F5CC6B">'+
+        'rules_version = \'2\';<br>service cloud.firestore {<br>&nbsp;&nbsp;match /databases/{database}/documents {<br>&nbsp;&nbsp;&nbsp;&nbsp;match /{document=**} {<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;allow read, write: if true;<br>&nbsp;&nbsp;&nbsp;&nbsp;}<br>&nbsp;&nbsp;}<br>}</code>',
+        'error',true);
+    } else {
+      showAlert('tc-alert',`❌ Error Firebase: "${SEC.sanitize(e.message||'desconocido')}". Abre la consola del navegador (F12) para más detalles.`,'error');
+    }
   }
 
   if(btn){ btn.disabled=false; btn.textContent='➕ Agregar Docente'; }
@@ -2069,10 +2082,12 @@ async function saveTeacher(){
 function confirmDeleteTeacher(tcId){
   const tc=CACHE.teachers.find(t=>t.id===tcId); if(!tc) return;
   showConfirm('🗑 Eliminar Docente',`¿Eliminar al docente "${tc.name}"?`, async()=>{
-    await fsDelete('teachers',tcId);
-    CACHE.teachers=CACHE.teachers.filter(t=>t.id!==tcId);
-    renderTeachersTable();
-    showToast('Docente eliminado.','success');
+    try{
+      await fsDelete('teachers',tcId);
+      CACHE.teachers=CACHE.teachers.filter(t=>t.id!==tcId);
+      renderTeachersTable();
+      showToast('Docente eliminado.','success');
+    }catch(e){ showToast('❌ Error al eliminar. Revisa los permisos de Firebase.','error'); }
   });
 }
 
@@ -2357,6 +2372,33 @@ async function saveAdminPassword(){
   ['cfg-pass-current','cfg-pass-new','cfg-pass-confirm'].forEach(id=>{ const el=document.getElementById(id); if(el) el.value=''; });
   showAlert('cfg-pass-alert','✅ Contraseña actualizada.','success');
   showToast('🔑 Contraseña actualizada.','success');
+}
+
+// ══════════════════════════════════════════════
+// FIREBASE PERMISSION ERROR HELPER
+// ══════════════════════════════════════════════
+function showFirebasePermError(context){
+  const msg =
+    '🔒 <strong>Error de permisos Firebase</strong> — Reglas de Firestore bloqueando escritura de '+context+'.<br>'+
+    'Ve a <a href="https://console.firebase.google.com" target="_blank" style="color:#4FA3E0">Firebase Console</a> '+
+    '→ Firestore Database → Reglas → publica: <code style="background:#0B0B0F;padding:2px 6px;border-radius:4px;font-size:0.82rem">allow read, write: if true;</code>';
+  showToast('🔒 Permisos Firebase bloqueados — Ve a Configuración','error');
+  // Show persistent banner in admin content
+  let banner=document.getElementById('fb-perm-banner');
+  if(!banner){
+    banner=document.createElement('div');
+    banner.id='fb-perm-banner';
+    banner.style.cssText='position:fixed;top:64px;left:0;right:0;z-index:1500;background:#3D0000;border-bottom:2px solid var(--error);padding:10px 20px;font-size:0.85rem;color:#FFD0D0;line-height:1.6;display:flex;align-items:flex-start;gap:12px';
+    document.body.appendChild(banner);
+  }
+  banner.innerHTML=
+    '<div style="flex:1">'+
+    '🔒 <strong>Firestore bloqueando escrituras.</strong> '+
+    'Ve a <a href="https://console.firebase.google.com" target="_blank" style="color:#4FA3E0;text-decoration:underline">console.firebase.google.com</a> '+
+    '→ tu proyecto → <strong>Firestore Database</strong> → <strong>Reglas</strong> → reemplaza con: '+
+    '<code style="background:#0B0B0F;padding:2px 8px;border-radius:4px;color:#F5CC6B;font-size:0.8rem">allow read, write: if true;</code> '+
+    '→ <strong>Publicar</strong> → recarga la página.</div>'+
+    '<button onclick="document.getElementById(\'fb-perm-banner\').remove()" style="background:none;border:none;color:#FFD0D0;cursor:pointer;font-size:1.2rem;flex-shrink:0;padding:0 4px">✕</button>';
 }
 
 // ══════════════════════════════════════════════
