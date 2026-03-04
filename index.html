@@ -230,6 +230,33 @@ tr:hover td{background:rgba(255,255,255,0.02);}
 .teacher-panel{display:none;}
 .teacher-panel.active{display:block;}
 .teacher-course-card{background:var(--bg3);border:1px solid rgba(79,163,224,0.2);border-radius:var(--rad);padding:1.25rem;margin-bottom:1rem;}
+/* ── Course selector tabs ─────────────────── */
+.tc-tabs{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:1.25rem;}
+.tc-tab{padding:6px 14px;border-radius:20px;border:1px solid rgba(79,163,224,0.3);background:transparent;color:var(--text2);cursor:pointer;font-size:0.82rem;transition:all .2s;}
+.tc-tab:hover{border-color:rgba(79,163,224,0.6);color:var(--text);}
+.tc-tab.active{background:rgba(79,163,224,0.15);border-color:var(--info);color:var(--info);font-weight:600;}
+/* ── View toggle buttons ──────────────────── */
+.tv-btn{padding:4px 10px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text2);cursor:pointer;font-size:0.78rem;transition:all .2s;}
+.tv-btn:hover{border-color:rgba(79,163,224,0.5);color:var(--text);}
+.tv-btn.tv-active{background:rgba(79,163,224,0.12);border-color:var(--info);color:var(--info);}
+/* ── Course card view ─────────────────────── */
+.tc-course-big-card{background:var(--bg3);border:1px solid rgba(79,163,224,0.2);border-radius:var(--rad);padding:1.25rem;margin-bottom:1rem;cursor:pointer;transition:border-color .2s;}
+.tc-course-big-card:hover,.tc-course-big-card.open{border-color:var(--info);}
+.tc-course-big-card-body{display:none;margin-top:1rem;border-top:1px solid var(--border);padding-top:1rem;}
+.tc-course-big-card.open .tc-course-big-card-body{display:block;}
+/* ── List/select view ─────────────────────── */
+.tc-select-view select{width:100%;max-width:420px;margin-bottom:1.25rem;}
+/* ── Chapter builder (teacher) ────────────── */
+.tch-builder{background:var(--bg3);border:1px solid rgba(79,163,224,0.2);border-radius:var(--rad);padding:1.25rem;margin-bottom:1rem;}
+.tch-builder-hdr{display:flex;justify-content:space-between;align-items:center;margin-bottom:0.85rem;}
+.tch-content-area{width:100%;min-height:90px;background:var(--bg4);border:1px solid var(--border);border-radius:6px;padding:0.6rem 0.75rem;color:var(--text);font-size:0.9rem;resize:vertical;}
+/* ── Question editor (teacher) ────────────── */
+.tq-editor{background:var(--bg4);border:1px solid var(--border);border-radius:8px;padding:1rem;margin-bottom:0.75rem;}
+.tq-editor-hdr{display:flex;justify-content:space-between;align-items:center;margin-bottom:0.6rem;}
+.tq-opt-row{display:flex;align-items:center;gap:8px;margin-bottom:4px;}
+.tq-opt-row input[type=radio]{accent-color:var(--gold);}
+.tq-add-btn{display:inline-flex;align-items:center;gap:5px;padding:5px 12px;border-radius:6px;border:1px dashed rgba(79,163,224,0.4);background:transparent;color:var(--info);cursor:pointer;font-size:0.82rem;margin-top:4px;transition:all .2s;}
+.tq-add-btn:hover{background:rgba(79,163,224,0.07);}
 .material-upload-row{display:flex;gap:0.5rem;margin-bottom:0.75rem;align-items:center;background:var(--bg4);padding:0.75rem;border-radius:8px;}
 .material-upload-row .mat-name{flex:1;font-size:0.88rem;}
 .material-upload-row .mat-type{color:var(--text2);font-size:0.8rem;margin-left:4px;}
@@ -403,30 +430,60 @@ tr:hover td{background:rgba(255,255,255,0.02);}
         <div style="font-size:0.75rem;color:var(--text2)" id="teacher-name-display">Cargando...</div>
       </div>
       <div class="teacher-menu-item active" onclick="switchTeacher('courses')" data-panel="courses">📚 Mis Cursos</div>
-      <div class="teacher-menu-item" onclick="switchTeacher('materials')" data-panel="materials">📁 Materiales</div>
-      <div class="teacher-menu-item" onclick="switchTeacher('practices')" data-panel="practices">🏋 Prácticas y Exámenes</div>
+      <div class="teacher-menu-item" onclick="switchTeacher('classes')"    data-panel="classes">📖 Gestionar Clases</div>
+      <div class="teacher-menu-item" onclick="switchTeacher('materials')"  data-panel="materials">📁 Materiales</div>
+      <div class="teacher-menu-item" onclick="switchTeacher('practices')"  data-panel="practices">🏋 Prácticas y Exámenes</div>
       <div style="padding:1rem 1.5rem;margin-top:1rem;border-top:1px solid rgba(79,163,224,0.2);">
         <button class="btn btn-outline btn-sm" style="width:100%" onclick="teacherLogout()">Cerrar Sesión</button>
       </div>
     </div>
     <div class="teacher-content">
+
+      <!-- ── MIS CURSOS ─────────────────────────── -->
       <div class="teacher-panel active" id="teacher-courses">
         <h2 style="color:var(--info)">📚 Mis Cursos Asignados</h2>
         <div id="teacher-courses-list"><p style="color:var(--text2)">Cargando cursos asignados...</p></div>
       </div>
-      <div class="teacher-panel" id="teacher-materials">
-        <h2 style="color:var(--info)">📁 Gestión de Materiales</h2>
-        <div style="background:rgba(79,163,224,0.07);border:1px solid rgba(79,163,224,0.2);border-radius:10px;padding:10px 14px;margin-bottom:1rem;font-size:0.82rem;color:var(--text2);display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
-          <span>📎 Formatos: PDF, PPT, PPTX, DOC, DOCX, JPG, PNG · Máx 10MB por archivo</span>
-          <button onclick="showStoragePermError()" style="margin-left:auto;background:none;border:1px solid rgba(255,152,0,0.4);color:#FFB74D;cursor:pointer;font-size:0.78rem;padding:4px 10px;border-radius:6px;white-space:nowrap">⚠️ ¿Error al subir? Ver solución</button>
+
+      <!-- ── GESTIONAR CLASES ───────────────────── -->
+      <div class="teacher-panel" id="teacher-classes">
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:1rem;margin-bottom:1rem">
+          <h2 style="color:var(--info);margin:0">📖 Gestionar Clases</h2>
+          <div id="tc-course-selector-classes"></div>
         </div>
+        <div id="teacher-classes-content"></div>
+      </div>
+
+      <!-- ── MATERIALES ─────────────────────────── -->
+      <div class="teacher-panel" id="teacher-materials">
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:1rem;margin-bottom:0.75rem">
+          <h2 style="color:var(--info);margin:0">📁 Materiales</h2>
+          <div style="display:flex;align-items:center;gap:8px">
+            <span style="font-size:0.78rem;color:var(--text2)">Vista:</span>
+            <div id="tc-view-btns" style="display:flex;gap:4px">
+              <button onclick="setTeacherView('tabs')"   id="tv-tabs"     class="tv-btn tv-active">⊟ Pestañas</button>
+              <button onclick="setTeacherView('cards')"  id="tv-cards"    class="tv-btn">⊞ Tarjetas</button>
+              <button onclick="setTeacherView('select')" id="tv-select"   class="tv-btn">☰ Lista</button>
+            </div>
+          </div>
+        </div>
+        <div style="background:rgba(79,163,224,0.06);border:1px solid rgba(79,163,224,0.18);border-radius:8px;padding:8px 12px;margin-bottom:1rem;font-size:0.8rem;color:var(--text2);display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          📎 Formatos: PDF, PPT, PPTX, DOC, DOCX, JPG, PNG · Máx 10 MB
+          <button onclick="showStoragePermError()" style="margin-left:auto;background:none;border:1px solid rgba(255,152,0,0.35);color:#FFB74D;cursor:pointer;font-size:0.75rem;padding:3px 9px;border-radius:5px">⚠️ ¿Error al subir?</button>
+        </div>
+        <div id="tc-mat-course-selector"></div>
         <div id="teacher-materials-list"></div>
       </div>
+
+      <!-- ── PRÁCTICAS Y EXÁMENES ───────────────── -->
       <div class="teacher-panel" id="teacher-practices">
-        <h2 style="color:var(--info)">🏋 Prácticas y Exámenes</h2>
-        <p style="color:var(--text2);margin-bottom:1.5rem">Los cambios en prácticas y exámenes se guardan directamente en los cursos asignados.</p>
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:1rem;margin-bottom:1rem">
+          <h2 style="color:var(--info);margin:0">🏋 Prácticas y Exámenes</h2>
+          <div id="tc-course-selector-practices"></div>
+        </div>
         <div id="teacher-practices-list"></div>
       </div>
+
     </div>
   </div>
 </section>
@@ -1588,7 +1645,8 @@ function switchTeacher(panel){
   if(!requireTeacher()) return;
   document.querySelectorAll('.teacher-menu-item').forEach(el=>el.classList.toggle('active',el.dataset.panel===panel));
   document.querySelectorAll('.teacher-panel').forEach(el=>el.classList.toggle('active',el.id==='teacher-'+panel));
-  if(panel==='courses') renderTeacherCourses();
+  if(panel==='courses')   renderTeacherCourses();
+  else if(panel==='classes')   renderTeacherClasses();
   else if(panel==='materials') renderTeacherMaterials();
   else if(panel==='practices') renderTeacherPractices();
 }
@@ -1598,6 +1656,18 @@ function getTeacherCourses(){
   return CACHE.courses.filter(c=>(session.courses||[]).includes(c.id));
 }
 
+// ── state for teacher panels ──────────────────────────
+const tcState={
+  view:'tabs',          // 'tabs'|'cards'|'select'
+  matCourse:null,       // currently selected course id for materials
+  pracCourse:null,      // currently selected course id for practices
+  classCourse:null,     // currently selected course id for classes
+  tcQCount:0            // teacher question counter
+};
+
+// ────────────────────────────────────────────────────────
+// MIS CURSOS
+// ────────────────────────────────────────────────────────
 function renderTeacherCourses(){
   const courses=getTeacherCourses();
   const el=document.getElementById('teacher-courses-list');
@@ -1611,50 +1681,123 @@ function renderTeacherCourses(){
         <div style="color:var(--text2);font-size:0.85rem">${(c.chapters||[]).length} capítulos · S/ ${parseFloat(c.price||0).toFixed(2)}</div>
       </div>
     </div>
-    <div style="color:var(--text2);font-size:0.85rem">${SEC.sanitize(c.desc||'').slice(0,150)}...</div>
-    <div style="margin-top:0.75rem;display:flex;gap:0.5rem">
-      <button class="btn btn-info btn-sm" style="background:var(--info);color:#fff" onclick="switchTeacher('materials')">📁 Materiales</button>
-      <button class="btn btn-outline btn-sm" onclick="switchTeacher('practices')">🏋 Prácticas</button>
+    <div style="color:var(--text2);font-size:0.85rem;margin-bottom:0.75rem">${SEC.sanitize(c.desc||'').slice(0,150)}${(c.desc||'').length>150?'...':''}</div>
+    <div style="display:flex;gap:0.5rem;flex-wrap:wrap">
+      <button class="btn btn-outline btn-sm" onclick="switchTeacher('classes')"   style="font-size:0.8rem">📖 Clases</button>
+      <button class="btn btn-info   btn-sm" onclick="switchTeacher('materials')"  style="background:var(--info);color:#fff;font-size:0.8rem">📁 Materiales</button>
+      <button class="btn btn-outline btn-sm" onclick="switchTeacher('practices')" style="font-size:0.8rem">🏋 Prácticas</button>
     </div>
   </div>`).join('');
 }
 
+// ────────────────────────────────────────────────────────
+// COURSE SELECTOR WIDGET (tabs / cards / select)
+// ────────────────────────────────────────────────────────
+function setTeacherView(v){
+  tcState.view=v;
+  ['tabs','cards','select'].forEach(id=>{
+    const b=document.getElementById('tv-'+id);
+    if(b) b.classList.toggle('tv-active',id===v);
+  });
+  renderTeacherMaterials();
+}
+
+function buildCourseSelector(containerId, stateKey, onSelect){
+  const courses=getTeacherCourses();
+  const sel=document.getElementById(containerId); if(!sel) return;
+  if(!courses.length){ sel.innerHTML=''; return; }
+  if(!tcState[stateKey]||!courses.find(c=>c.id===tcState[stateKey]))
+    tcState[stateKey]=courses[0].id;
+
+  if(containerId==='tc-mat-course-selector'){
+    // uses tcState.view
+    if(tcState.view==='tabs'){
+      sel.innerHTML=`<div class="tc-tabs">${courses.map(c=>`
+        <button class="tc-tab${tcState[stateKey]===c.id?' active':''}"
+          onclick="tcState['${stateKey}']='${c.id}';buildCourseSelector('${containerId}','${stateKey}',null);${onSelect}">
+          ${SEC.sanitize(c.icon||'📚')} ${SEC.sanitize(c.name)}
+        </button>`).join('')}</div>`;
+    } else if(tcState.view==='cards'){
+      sel.innerHTML=`<div>${courses.map(c=>`
+        <div class="tc-course-big-card${tcState[stateKey]===c.id?' open':''}"
+          onclick="tcState['${stateKey}']='${c.id}';renderTeacherMaterials()">
+          <div style="display:flex;align-items:center;gap:10px">
+            <span style="font-size:1.5rem">${SEC.sanitize(c.icon||'📚')}</span>
+            <div><div style="font-weight:600">${SEC.sanitize(c.name)}</div>
+            <div style="color:var(--text2);font-size:0.8rem">${(c.chapters||[]).length} capítulos</div></div>
+            <span style="margin-left:auto;color:var(--info)">${tcState[stateKey]===c.id?'▲':'▼'}</span>
+          </div>
+          <div class="tc-course-big-card-body">${tcState[stateKey]===c.id?renderMatForCourse(c):''}
+          </div>
+        </div>`).join('')}</div>`;
+      return; // cards view renders inline
+    } else {
+      sel.innerHTML=`<div class="tc-select-view">
+        <select onchange="tcState['${stateKey}']=this.value;renderTeacherMaterials()" style="background:var(--bg4);border:1px solid var(--border);color:var(--text);padding:8px 12px;border-radius:8px;font-size:0.9rem">
+          ${courses.map(c=>`<option value="${c.id}" ${tcState[stateKey]===c.id?'selected':''}>${SEC.sanitize(c.icon||'📚')} ${SEC.sanitize(c.name)}</option>`).join('')}
+        </select></div>`;
+    }
+  } else {
+    // tabs only for classes / practices selectors
+    sel.innerHTML=`<div class="tc-tabs">${courses.map(c=>`
+      <button class="tc-tab${tcState[stateKey]===c.id?' active':''}"
+        onclick="tcState['${stateKey}']='${c.id}';${onSelect}">
+        ${SEC.sanitize(c.icon||'📚')} ${SEC.sanitize(c.name)}
+      </button>`).join('')}</div>`;
+  }
+}
+
+// ────────────────────────────────────────────────────────
+// MATERIALES
+// ────────────────────────────────────────────────────────
 function renderTeacherMaterials(){
   const courses=getTeacherCourses();
   const el=document.getElementById('teacher-materials-list');
   if(!courses.length){ el.innerHTML='<p style="color:var(--text2)">No tienes cursos asignados.</p>'; return; }
-  el.innerHTML=courses.map(c=>`
-  <div style="background:var(--bg3);border:1px solid rgba(79,163,224,0.2);border-radius:var(--rad);padding:1.5rem;margin-bottom:1.5rem;">
-    <div style="font-weight:600;font-size:1.1rem;margin-bottom:1rem;color:var(--info)">${SEC.sanitize(c.name)}</div>
-    ${(c.chapters||[]).map((ch,ci)=>`
-    <div style="margin-bottom:1rem;padding:1rem;background:var(--bg4);border-radius:8px">
-      <div style="font-weight:600;margin-bottom:0.75rem;font-size:0.9rem">📖 Cap. ${ci+1}: ${SEC.sanitize(ch.title)}</div>
-      <div id="mat-list-${c.id}-${ci}">
-        ${(ch.materials||[]).map((m,mi)=>`
-        <div class="material-upload-row">
-          <span class="material-icon">${getMaterialIcon(m.type)}</span>
-          <div class="mat-name">${SEC.sanitize(m.name)}</div>
-          <a href="${m.url}" target="_blank" class="material-btn">Abrir</a>
-          <button class="btn btn-danger btn-sm" onclick="removeMaterialTeacher('${c.id}',${ci},${mi})">✕</button>
-        </div>`).join('')}
-      </div>
-      <div style="margin-top:0.75rem">
-        <input type="text" id="mat-name-${c.id}-${ci}" placeholder="Nombre del material..." style="margin-bottom:0.5rem">
-        <div style="display:flex;gap:0.5rem;align-items:center">
-          <input type="file" id="mat-file-${c.id}-${ci}" accept=".pdf,.ppt,.pptx,.doc,.docx,.jpg,.jpeg,.png,.gif,.webp" style="flex:1;font-size:0.82rem">
-          <div class="upload-progress" id="mat-prog-${c.id}-${ci}" style="margin-top:6px">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px">
-              <span style="font-size:0.75rem;color:var(--gold)">Subiendo archivo...</span>
-              <span id="mat-prog-pct-${c.id}-${ci}" style="font-size:0.75rem;color:var(--gold)">0%</span>
-            </div>
-            <div style="height:6px;background:var(--bg3);border-radius:3px;overflow:hidden">
-              <div class="upload-progress-fill" id="mat-progfill-${c.id}-${ci}" style="width:0%;height:100%"></div>
-            </div>
+
+  buildCourseSelector('tc-mat-course-selector','matCourse','renderTeacherMaterials()');
+
+  if(tcState.view==='cards'){
+    // cards view renders all inline already
+    el.innerHTML='';
+    return;
+  }
+
+  const c=courses.find(c=>c.id===tcState.matCourse)||courses[0];
+  el.innerHTML=renderMatForCourse(c);
+}
+
+function renderMatForCourse(c){
+  return (c.chapters||[]).map((ch,ci)=>`
+  <div style="margin-bottom:1rem;padding:1rem;background:var(--bg4);border-radius:10px;border:1px solid var(--border)">
+    <div style="font-weight:600;margin-bottom:0.75rem;font-size:0.9rem;color:var(--text)">📖 Cap. ${ci+1}: ${SEC.sanitize(ch.title)}</div>
+    <div id="mat-list-${c.id}-${ci}">
+      ${(ch.materials||[]).map((m,mi)=>`
+      <div class="material-upload-row">
+        <span class="material-icon">${getMaterialIcon(m.type)}</span>
+        <div class="mat-name">${SEC.sanitize(m.name)}</div>
+        <a href="${m.url}" target="_blank" class="material-btn">Abrir</a>
+        <button class="btn btn-danger btn-sm" onclick="removeMaterialTeacher('${c.id}',${ci},${mi})">✕</button>
+      </div>`).join('')}
+    </div>
+    <div style="margin-top:0.75rem">
+      <input type="text" id="mat-name-${c.id}-${ci}" placeholder="Nombre del material…" style="margin-bottom:0.5rem">
+      <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap">
+        <input type="file" id="mat-file-${c.id}-${ci}"
+          accept=".pdf,.ppt,.pptx,.doc,.docx,.jpg,.jpeg,.png,.gif,.webp"
+          style="flex:1;min-width:160px;font-size:0.82rem">
+        <div class="upload-progress" id="mat-prog-${c.id}-${ci}" style="display:none;width:100%;margin-top:4px">
+          <div style="display:flex;justify-content:space-between;font-size:0.75rem;color:var(--gold);margin-bottom:2px">
+            <span>Subiendo...</span><span id="mat-prog-pct-${c.id}-${ci}">0%</span>
           </div>
-          <button class="btn btn-success btn-sm" onclick="uploadMaterialTeacher('${c.id}',${ci})">⬆ Subir</button>
+          <div style="height:6px;background:var(--bg3);border-radius:3px;overflow:hidden">
+            <div class="upload-progress-fill" id="mat-progfill-${c.id}-${ci}" style="width:0%;height:100%"></div>
+          </div>
         </div>
+        <button class="btn btn-success btn-sm" id="mat-btn-${c.id}-${ci}"
+          onclick="uploadMaterialTeacher('${c.id}',${ci})">⬆ Subir</button>
       </div>
-    </div>`).join('')}
+    </div>
   </div>`).join('');
 }
 
@@ -1662,116 +1805,59 @@ async function uploadMaterialTeacher(courseId, chIdx){
   if(!requireTeacher()) return;
   const fileInput=document.getElementById(`mat-file-${courseId}-${chIdx}`);
   const nameInput=document.getElementById(`mat-name-${courseId}-${chIdx}`);
-  const uploadBtn=document.querySelector(`[onclick="uploadMaterialTeacher('${courseId}',${chIdx})"]`);
+  const uploadBtn=document.getElementById(`mat-btn-${courseId}-${chIdx}`);
   const file=fileInput?fileInput.files[0]:null;
   if(!file){ showToast('Selecciona un archivo primero.','error'); return; }
   const matName=SEC.str(nameInput?nameInput.value:'',100)||file.name;
   const check=SEC.validateFile(file,10);
   if(!check.ok){ showToast(check.msg,'error'); return; }
-
   const progEl=document.getElementById(`mat-prog-${courseId}-${chIdx}`);
   const progFill=document.getElementById(`mat-progfill-${courseId}-${chIdx}`);
   const progPct=document.getElementById(`mat-prog-pct-${courseId}-${chIdx}`);
   if(progEl) progEl.style.display='block';
-  if(uploadBtn){ uploadBtn.disabled=true; uploadBtn.textContent='Subiendo...'; }
-
+  if(uploadBtn){ uploadBtn.disabled=true; uploadBtn.textContent='Subiendo…'; }
   try {
-    // Sanitize filename - remove special chars that can cause Storage path issues
-    const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g,'_');
+    const safeName=file.name.replace(/[^a-zA-Z0-9._-]/g,'_');
     const path=`materials/${courseId}/ch${chIdx}/${Date.now()}_${safeName}`;
-
-    const url=await uploadFileToStorage(file, path, pct=>{
+    const url=await uploadFileToStorage(file,path,pct=>{
       if(progFill) progFill.style.width=pct+'%';
       if(progPct) progPct.textContent=Math.round(pct)+'%';
     });
-
-    const course=CACHE.courses.find(c=>c.id===courseId);
-    if(!course){ showToast('Error: curso no encontrado.','error'); return; }
+    const course=CACHE.courses.find(c=>c.id===courseId); if(!course) return;
     const chapters=JSON.parse(JSON.stringify(course.chapters||[]));
-    if(!chapters[chIdx]){ showToast('Error: capítulo no encontrado.','error'); return; }
+    if(!chapters[chIdx]) return;
     if(!chapters[chIdx].materials) chapters[chIdx].materials=[];
-    chapters[chIdx].materials.push({
-      name:matName, url, type:file.type,
-      typeLabel:getFileTypeLabel(file.type),
-      uploadedAt:new Date().toISOString()
-    });
+    chapters[chIdx].materials.push({name:matName,url,type:file.type,typeLabel:getFileTypeLabel(file.type),uploadedAt:new Date().toISOString()});
     await fsUpdate('courses',courseId,{chapters});
     course.chapters=chapters;
     if(nameInput) nameInput.value='';
     if(fileInput) fileInput.value='';
     showToast('✅ Material subido correctamente.','success');
     renderTeacherMaterials();
-
-  } catch(e) {
+  } catch(e){
     console.error('upload error',e);
     const msg=(e.message||e.code||'').toLowerCase();
-    const isStoragePerm = msg.includes('storage/unauthorized') || msg.includes('permission') || msg.includes('403') || msg.includes('unauthorized');
-    const isStorageNotFound = msg.includes('storage/object-not-found') || msg.includes('storage/bucket-not-found') || msg.includes('not-found');
-    const isNoStorage = msg.includes('storage/no-bucket') || msg.includes('appspot');
-
-    if(isStoragePerm || isStorageNotFound || isNoStorage){
-      showStoragePermError();
-    } else {
-      showToast(`❌ Error al subir: ${e.message||e.code||'desconocido'}. Abre F12 para detalles.`,'error');
-      showStoragePermError(); // show anyway as it's the most common cause
-    }
+    if(msg.includes('unauthorized')||msg.includes('permission')||msg.includes('403')) showStoragePermError();
+    else { showToast(`❌ Error: ${e.message||'desconocido'}. Abre F12.`,'error'); showStoragePermError(); }
   }
   if(progEl){ progEl.style.display='none'; if(progFill) progFill.style.width='0%'; }
   if(uploadBtn){ uploadBtn.disabled=false; uploadBtn.textContent='⬆ Subir'; }
 }
 
-function showStoragePermError(){
-  // Remove existing banner if any
-  const old=document.getElementById('storage-perm-banner');
-  if(old) old.remove();
-
-  const banner=document.createElement('div');
-  banner.id='storage-perm-banner';
-  banner.style.cssText=
-    'position:fixed;top:64px;left:0;right:0;z-index:1600;'+
-    'background:#1A0A00;border-bottom:2px solid #FF9800;'+
-    'padding:14px 20px;font-size:0.85rem;color:#FFE0B0;line-height:1.8;'+
-    'display:flex;align-items:flex-start;gap:12px;box-shadow:0 4px 20px rgba(0,0,0,0.5)';
-
-  banner.innerHTML=
-    '<div style="font-size:1.5rem;flex-shrink:0;margin-top:2px">⚠️</div>'+
-    '<div style="flex:1">'+
-      '<strong style="font-size:0.95rem;color:#FFB74D">Firebase Storage bloqueando subida de archivos</strong><br>'+
-      'Las reglas de Storage no permiten escritura. Sigue estos pasos:<br>'+
-      '<div style="margin-top:8px;display:flex;flex-direction:column;gap:4px">'+
-        '<span>1️⃣ Ve a <a href="https://console.firebase.google.com" target="_blank" style="color:#4FA3E0;text-decoration:underline;font-weight:600">console.firebase.google.com</a></span>'+
-        '<span>2️⃣ Abre tu proyecto → menú lateral → <strong>Storage</strong></span>'+
-        '<span>3️⃣ Si ves "Comenzar" → actívalo primero (modo producción, región us-central1)</span>'+
-        '<span>4️⃣ Pestaña <strong>Reglas</strong> → reemplaza TODO con:</span>'+
-      '</div>'+
-      '<code style="display:block;margin:8px 0;background:#0B0B0F;border:1px solid #FF9800;padding:10px 14px;border-radius:6px;font-size:0.82rem;line-height:1.7;color:#F5CC6B;white-space:pre">'+
-'rules_version = \'2\';\nservice firebase.storage {\n  match /b/{bucket}/o {\n    match /{allPaths=**} {\n      allow read, write: if true;\n    }\n  }\n}'+
-      '</code>'+
-      '<span>5️⃣ Clic en <strong>Publicar</strong> → recarga la página → intenta subir de nuevo ✅</span>'+
-    '</div>'+
-    '<button onclick="document.getElementById(\'storage-perm-banner\').remove()" '+
-      'style="background:none;border:1px solid #FF9800;color:#FFB74D;cursor:pointer;'+
-      'font-size:0.8rem;flex-shrink:0;padding:4px 10px;border-radius:6px;margin-top:2px">'+
-      '✕ Cerrar</button>';
-
-  document.body.appendChild(banner);
-  // Scroll to top so user sees it
-  window.scrollTo({top:0,behavior:'smooth'});
-}
-
 async function removeMaterialTeacher(courseId, chIdx, matIdx){
   if(!requireTeacher()) return;
-  showConfirm('¿Eliminar material?','¿Seguro que deseas eliminar este material? Esta acción no se puede deshacer.',async()=>{
-    const course=CACHE.courses.find(c=>c.id===courseId);
-    if(!course) return;
-    const chapters=JSON.parse(JSON.stringify(course.chapters||[]));
-    if(chapters[chIdx]&&chapters[chIdx].materials){
-      chapters[chIdx].materials.splice(matIdx,1);
-      await fsUpdate('courses',courseId,{chapters});
-      course.chapters=chapters;
-      renderTeacherMaterials();
-      showToast('Material eliminado.','success');
-    }
+  showConfirm('¿Eliminar material?','Esta acción no se puede deshacer.',async()=>{
+    try{
+      const course=CACHE.courses.find(c=>c.id===courseId); if(!course) return;
+      const chapters=JSON.parse(JSON.stringify(course.chapters||[]));
+      if(chapters[chIdx]&&chapters[chIdx].materials){
+        chapters[chIdx].materials.splice(matIdx,1);
+        await fsUpdate('courses',courseId,{chapters});
+        course.chapters=chapters;
+        renderTeacherMaterials();
+        showToast('Material eliminado.','success');
+      }
+    }catch(e){ showToast('❌ Error al eliminar.','error'); }
   });
 }
 
@@ -1783,20 +1869,211 @@ function getFileTypeLabel(type){
   return 'Archivo';
 }
 
+// ────────────────────────────────────────────────────────
+// GESTIONAR CLASES (chapters: title + content)
+// ────────────────────────────────────────────────────────
+function renderTeacherClasses(){
+  const courses=getTeacherCourses();
+  const sel=document.getElementById('tc-course-selector-classes');
+  const content=document.getElementById('teacher-classes-content');
+  if(!courses.length){ if(sel) sel.innerHTML=''; if(content) content.innerHTML='<p style="color:var(--text2)">No tienes cursos asignados.</p>'; return; }
+  buildCourseSelector('tc-course-selector-classes','classCourse','renderTeacherClassesContent()');
+  renderTeacherClassesContent();
+}
+
+function renderTeacherClassesContent(){
+  const courses=getTeacherCourses();
+  const c=courses.find(c=>c.id===tcState.classCourse)||courses[0];
+  const el=document.getElementById('teacher-classes-content'); if(!el||!c) return;
+
+  const chapHtml=(c.chapters||[]).map((ch,ci)=>`
+  <div class="tch-builder" id="tch-${c.id}-${ci}">
+    <div class="tch-builder-hdr">
+      <span style="font-weight:600;color:var(--info)">📖 Capítulo ${ci+1}</span>
+      <div style="display:flex;gap:6px">
+        <button class="btn btn-gold btn-sm" onclick="saveChapterTeacher('${c.id}',${ci})">💾 Guardar</button>
+        <button class="btn btn-danger btn-sm" onclick="deleteChapterTeacher('${c.id}',${ci})">🗑</button>
+      </div>
+    </div>
+    <div class="form-group" style="margin-bottom:0.6rem">
+      <label style="font-size:0.82rem">Título</label>
+      <input type="text" id="tch-title-${c.id}-${ci}" value="${SEC.sanitize(ch.title||'')}"
+        placeholder="Título del capítulo…" maxlength="100"
+        style="background:var(--bg4);border:1px solid var(--border);color:var(--text);padding:7px 10px;border-radius:6px;width:100%">
+    </div>
+    <div class="form-group" style="margin-bottom:0">
+      <label style="font-size:0.82rem">Contenido</label>
+      <textarea class="tch-content-area" id="tch-content-${c.id}-${ci}" maxlength="5000"
+        placeholder="Escribe el contenido educativo de esta clase…">${SEC.sanitize(ch.content||'')}</textarea>
+    </div>
+  </div>`).join('');
+
+  el.innerHTML=`
+  <div style="background:rgba(79,163,224,0.06);border:1px solid rgba(79,163,224,0.18);border-radius:8px;padding:10px 14px;margin-bottom:1.25rem;font-size:0.83rem;color:var(--text2)">
+    ✏️ Edita el título y contenido de cada clase. Haz clic en <strong style="color:var(--gold)">💾 Guardar</strong> en cada capítulo para confirmar los cambios.
+  </div>
+  ${chapHtml}
+  <button class="btn btn-outline" onclick="addChapterTeacher('${c.id}')" style="width:100%;margin-top:0.5rem">
+    ＋ Agregar Nuevo Capítulo
+  </button>`;
+}
+
+async function saveChapterTeacher(courseId, chIdx){
+  if(!requireTeacher()) return;
+  const course=CACHE.courses.find(c=>c.id===courseId); if(!course) return;
+  const titleEl=document.getElementById(`tch-title-${courseId}-${chIdx}`);
+  const contentEl=document.getElementById(`tch-content-${courseId}-${chIdx}`);
+  const title=SEC.str(titleEl?titleEl.value:'',100);
+  const content=SEC.str(contentEl?contentEl.value:'',5000);
+  if(!title){ showToast('El título no puede estar vacío.','error'); return; }
+  const chapters=JSON.parse(JSON.stringify(course.chapters||[]));
+  if(!chapters[chIdx]) return;
+  chapters[chIdx].title=title;
+  chapters[chIdx].content=content;
+  try{
+    await fsUpdate('courses',courseId,{chapters});
+    course.chapters=chapters;
+    showToast(`✅ Capítulo ${chIdx+1} actualizado.`,'success');
+  }catch(e){ showFirebasePermError('capítulo'); }
+}
+
+async function addChapterTeacher(courseId){
+  if(!requireTeacher()) return;
+  const course=CACHE.courses.find(c=>c.id===courseId); if(!course) return;
+  const chapters=JSON.parse(JSON.stringify(course.chapters||[]));
+  if(chapters.length>=12){ showToast('Máximo 12 capítulos por curso.','error'); return; }
+  chapters.push({id:'ch_'+Date.now()+'_'+chapters.length,title:'Nuevo Capítulo',content:'',practices:[],exam:[],materials:[]});
+  try{
+    await fsUpdate('courses',courseId,{chapters});
+    course.chapters=chapters;
+    showToast('✅ Capítulo agregado.','success');
+    renderTeacherClassesContent();
+  }catch(e){ showFirebasePermError('capítulo'); }
+}
+
+async function deleteChapterTeacher(courseId, chIdx){
+  if(!requireTeacher()) return;
+  const course=CACHE.courses.find(c=>c.id===courseId); if(!course) return;
+  if((course.chapters||[]).length<=1){ showToast('El curso debe tener al menos 1 capítulo.','error'); return; }
+  showConfirm('🗑 Eliminar Capítulo',
+    `¿Eliminar el Capítulo ${chIdx+1}? Se perderá su contenido, prácticas, examen y materiales.`,
+    async()=>{
+      const chapters=JSON.parse(JSON.stringify(course.chapters||[]));
+      chapters.splice(chIdx,1);
+      try{
+        await fsUpdate('courses',courseId,{chapters});
+        course.chapters=chapters;
+        showToast('Capítulo eliminado.','success');
+        renderTeacherClassesContent();
+      }catch(e){ showFirebasePermError('capítulo'); }
+    });
+}
+
+// ────────────────────────────────────────────────────────
+// PRÁCTICAS Y EXÁMENES — editor completo
+// ────────────────────────────────────────────────────────
 function renderTeacherPractices(){
   const courses=getTeacherCourses();
+  const sel=document.getElementById('tc-course-selector-practices');
   const el=document.getElementById('teacher-practices-list');
-  if(!courses.length){ el.innerHTML='<p style="color:var(--text2)">No tienes cursos asignados.</p>'; return; }
-  el.innerHTML=`<div class="alert alert-info">Para gestionar prácticas y exámenes, el administrador debe editar el curso. Los docentes pueden sugerir cambios al admin.</div>
-  ${courses.map(c=>`
-  <div style="background:var(--bg3);border:1px solid rgba(79,163,224,0.2);border-radius:var(--rad);padding:1.5rem;margin-bottom:1rem;">
-    <div style="font-weight:600;color:var(--info);margin-bottom:0.75rem">${SEC.sanitize(c.name)}</div>
-    ${(c.chapters||[]).map((ch,ci)=>`
-    <div style="padding:0.75rem;background:var(--bg4);border-radius:8px;margin-bottom:0.5rem">
-      <div style="font-size:0.9rem;font-weight:600;margin-bottom:0.25rem">Cap. ${ci+1}: ${SEC.sanitize(ch.title)}</div>
-      <div style="color:var(--text2);font-size:0.8rem">${(ch.practices||[]).length} práctica(s) · ${(ch.exam||[]).length} pregunta(s) de examen</div>
-    </div>`).join('')}
+  if(!courses.length){ if(sel) sel.innerHTML=''; if(el) el.innerHTML='<p style="color:var(--text2)">No tienes cursos asignados.</p>'; return; }
+  buildCourseSelector('tc-course-selector-practices','pracCourse','renderTeacherPracticesContent()');
+  renderTeacherPracticesContent();
+}
+
+function renderTeacherPracticesContent(){
+  const courses=getTeacherCourses();
+  const c=courses.find(c=>c.id===tcState.pracCourse)||courses[0];
+  const el=document.getElementById('teacher-practices-list'); if(!el||!c) return;
+
+  el.innerHTML=`
+  <div style="background:rgba(79,163,224,0.06);border:1px solid rgba(79,163,224,0.18);border-radius:8px;padding:10px 14px;margin-bottom:1.25rem;font-size:0.83rem;color:var(--text2)">
+    🏋 Agrega, edita y elimina preguntas de práctica y examen por capítulo.
+    Marca el radio ◉ junto a la opción correcta. Haz clic en <strong style="color:var(--gold)">💾 Guardar</strong> por capítulo.
+  </div>
+  ${(c.chapters||[]).map((ch,ci)=>`
+  <div style="background:var(--bg3);border:1px solid rgba(79,163,224,0.2);border-radius:var(--rad);padding:1.25rem;margin-bottom:1.25rem">
+    <div style="font-weight:600;color:var(--info);margin-bottom:1rem;font-size:1rem">📖 Cap. ${ci+1}: ${SEC.sanitize(ch.title)}</div>
+
+    <!-- Prácticas -->
+    <div style="font-weight:600;font-size:0.88rem;margin-bottom:0.5rem;color:var(--text)">🏋 Prácticas</div>
+    <div id="tprac-${c.id}-${ci}">
+      ${(ch.practices||[]).map((p,pi)=>tqEditorHtml(`tp-${c.id}-${ci}-${pi}`,p,'Práctica',pi+1)).join('')}
+    </div>
+    <button class="tq-add-btn" onclick="addTQ('tprac-${c.id}-${ci}','tp-${c.id}-${ci}')">＋ Agregar Práctica</button>
+
+    <!-- Examen -->
+    <div style="font-weight:600;font-size:0.88rem;margin:1rem 0 0.5rem;color:var(--text)">📝 Examen Final</div>
+    <div id="texam-${c.id}-${ci}">
+      ${(ch.exam||[]).map((q,qi)=>tqEditorHtml(`te-${c.id}-${ci}-${qi}`,q,'Examen',qi+1)).join('')}
+    </div>
+    <button class="tq-add-btn" onclick="addTQ('texam-${c.id}-${ci}','te-${c.id}-${ci}')">＋ Agregar Pregunta Examen</button>
+
+    <div style="margin-top:1rem;display:flex;gap:0.75rem">
+      <button class="btn btn-gold btn-sm" onclick="saveTeacherQs('${c.id}',${ci})">💾 Guardar Capítulo ${ci+1}</button>
+    </div>
   </div>`).join('')}`;
+}
+
+function tqEditorHtml(qId, qData, label, num){
+  return `<div class="tq-editor" id="${qId}">
+    <div class="tq-editor-hdr">
+      <span style="font-size:0.82rem;font-weight:600;color:var(--text2)">${label} #${num}</span>
+      <button class="btn btn-danger btn-sm" onclick="document.getElementById('${qId}').remove()">✕</button>
+    </div>
+    <input type="text" id="${qId}-q" placeholder="Escribe la pregunta…" maxlength="300"
+      value="${qData?SEC.sanitize(qData.q):''}"
+      style="width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:7px 10px;border-radius:6px;margin-bottom:0.5rem">
+    ${[0,1,2,3].map(oi=>`
+    <div class="tq-opt-row">
+      <input type="radio" name="${qId}-correct" value="${oi}" ${qData&&qData.correct===oi?'checked':''}>
+      <input type="text" id="${qId}-opt-${oi}" placeholder="Opción ${String.fromCharCode(65+oi)}" maxlength="200"
+        value="${qData&&qData.opts?SEC.sanitize(qData.opts[oi]||''):''}"
+        style="flex:1;background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:6px 10px;border-radius:6px">
+    </div>`).join('')}
+    <p style="font-size:0.72rem;color:var(--text2);margin-top:4px">◉ Marca la opción correcta</p>
+  </div>`;
+}
+
+function addTQ(containerId, baseId){
+  tcState.tcQCount++;
+  const qId=`${baseId}-new${tcState.tcQCount}`;
+  const container=document.getElementById(containerId); if(!container) return;
+  const count=container.querySelectorAll('.tq-editor').length+1;
+  const label=containerId.startsWith('tprac')?'Práctica':'Examen';
+  const div=document.createElement('div');
+  div.innerHTML=tqEditorHtml(qId,null,label,count);
+  container.appendChild(div.firstElementChild);
+}
+
+function collectTQs(containerId){
+  const container=document.getElementById(containerId); if(!container) return [];
+  const qs=[];
+  container.querySelectorAll('.tq-editor').forEach(qEl=>{
+    const qId=qEl.id;
+    const q=SEC.str(document.getElementById(`${qId}-q`)?.value||'',300); if(!q) return;
+    const opts=[0,1,2,3].map(oi=>SEC.str(document.getElementById(`${qId}-opt-${oi}`)?.value||'',200));
+    const cr=qEl.querySelector(`input[name="${qId}-correct"]:checked`);
+    if(!opts.filter(Boolean).length){ return; }
+    qs.push({q,opts,correct:cr?parseInt(cr.value):0});
+  });
+  return qs;
+}
+
+async function saveTeacherQs(courseId, chIdx){
+  if(!requireTeacher()) return;
+  const course=CACHE.courses.find(c=>c.id===courseId); if(!course) return;
+  const chapters=JSON.parse(JSON.stringify(course.chapters||[]));
+  if(!chapters[chIdx]) return;
+  const practices=collectTQs(`tprac-${courseId}-${chIdx}`);
+  const exam     =collectTQs(`texam-${courseId}-${chIdx}`);
+  chapters[chIdx].practices=practices;
+  chapters[chIdx].exam=exam;
+  try{
+    await fsUpdate('courses',courseId,{chapters});
+    course.chapters=chapters;
+    showToast(`✅ Cap. ${chIdx+1}: ${practices.length} práctica(s) y ${exam.length} pregunta(s) guardadas.`,'success');
+  }catch(e){ showFirebasePermError('prácticas'); }
 }
 
 // ══════════════════════════════════════════════
