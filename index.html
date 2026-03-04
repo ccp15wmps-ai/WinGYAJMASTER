@@ -416,6 +416,10 @@ tr:hover td{background:rgba(255,255,255,0.02);}
       </div>
       <div class="teacher-panel" id="teacher-materials">
         <h2 style="color:var(--info)">📁 Gestión de Materiales</h2>
+        <div style="background:rgba(79,163,224,0.07);border:1px solid rgba(79,163,224,0.2);border-radius:10px;padding:10px 14px;margin-bottom:1rem;font-size:0.82rem;color:var(--text2);display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+          <span>📎 Formatos: PDF, PPT, PPTX, DOC, DOCX, JPG, PNG · Máx 10MB por archivo</span>
+          <button onclick="showStoragePermError()" style="margin-left:auto;background:none;border:1px solid rgba(255,152,0,0.4);color:#FFB74D;cursor:pointer;font-size:0.78rem;padding:4px 10px;border-radius:6px;white-space:nowrap">⚠️ ¿Error al subir? Ver solución</button>
+        </div>
         <div id="teacher-materials-list"></div>
       </div>
       <div class="teacher-panel" id="teacher-practices">
@@ -1638,7 +1642,15 @@ function renderTeacherMaterials(){
         <input type="text" id="mat-name-${c.id}-${ci}" placeholder="Nombre del material..." style="margin-bottom:0.5rem">
         <div style="display:flex;gap:0.5rem;align-items:center">
           <input type="file" id="mat-file-${c.id}-${ci}" accept=".pdf,.ppt,.pptx,.doc,.docx,.jpg,.jpeg,.png,.gif,.webp" style="flex:1;font-size:0.82rem">
-          <div class="upload-progress" id="mat-prog-${c.id}-${ci}"><div class="upload-progress-fill" id="mat-progfill-${c.id}-${ci}" style="width:0%"></div></div>
+          <div class="upload-progress" id="mat-prog-${c.id}-${ci}" style="margin-top:6px">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px">
+              <span style="font-size:0.75rem;color:var(--gold)">Subiendo archivo...</span>
+              <span id="mat-prog-pct-${c.id}-${ci}" style="font-size:0.75rem;color:var(--gold)">0%</span>
+            </div>
+            <div style="height:6px;background:var(--bg3);border-radius:3px;overflow:hidden">
+              <div class="upload-progress-fill" id="mat-progfill-${c.id}-${ci}" style="width:0%;height:100%"></div>
+            </div>
+          </div>
           <button class="btn btn-success btn-sm" onclick="uploadMaterialTeacher('${c.id}',${ci})">⬆ Subir</button>
         </div>
       </div>
@@ -1650,6 +1662,7 @@ async function uploadMaterialTeacher(courseId, chIdx){
   if(!requireTeacher()) return;
   const fileInput=document.getElementById(`mat-file-${courseId}-${chIdx}`);
   const nameInput=document.getElementById(`mat-name-${courseId}-${chIdx}`);
+  const uploadBtn=document.querySelector(`[onclick="uploadMaterialTeacher('${courseId}',${chIdx})"]`);
   const file=fileInput?fileInput.files[0]:null;
   if(!file){ showToast('Selecciona un archivo primero.','error'); return; }
   const matName=SEC.str(nameInput?nameInput.value:'',100)||file.name;
@@ -1658,28 +1671,92 @@ async function uploadMaterialTeacher(courseId, chIdx){
 
   const progEl=document.getElementById(`mat-prog-${courseId}-${chIdx}`);
   const progFill=document.getElementById(`mat-progfill-${courseId}-${chIdx}`);
+  const progPct=document.getElementById(`mat-prog-pct-${courseId}-${chIdx}`);
   if(progEl) progEl.style.display='block';
+  if(uploadBtn){ uploadBtn.disabled=true; uploadBtn.textContent='Subiendo...'; }
 
   try {
-    const path=`materials/${courseId}/ch${chIdx}/${Date.now()}_${file.name}`;
+    // Sanitize filename - remove special chars that can cause Storage path issues
+    const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g,'_');
+    const path=`materials/${courseId}/ch${chIdx}/${Date.now()}_${safeName}`;
+
     const url=await uploadFileToStorage(file, path, pct=>{
       if(progFill) progFill.style.width=pct+'%';
+      if(progPct) progPct.textContent=Math.round(pct)+'%';
     });
+
     const course=CACHE.courses.find(c=>c.id===courseId);
-    if(!course) return;
+    if(!course){ showToast('Error: curso no encontrado.','error'); return; }
     const chapters=JSON.parse(JSON.stringify(course.chapters||[]));
-    if(!chapters[chIdx]) return;
+    if(!chapters[chIdx]){ showToast('Error: capítulo no encontrado.','error'); return; }
     if(!chapters[chIdx].materials) chapters[chIdx].materials=[];
-    chapters[chIdx].materials.push({name:matName,url,type:file.type,typeLabel:getFileTypeLabel(file.type),uploadedAt:new Date().toISOString()});
+    chapters[chIdx].materials.push({
+      name:matName, url, type:file.type,
+      typeLabel:getFileTypeLabel(file.type),
+      uploadedAt:new Date().toISOString()
+    });
     await fsUpdate('courses',courseId,{chapters});
     course.chapters=chapters;
+    if(nameInput) nameInput.value='';
+    if(fileInput) fileInput.value='';
     showToast('✅ Material subido correctamente.','success');
     renderTeacherMaterials();
+
   } catch(e) {
     console.error('upload error',e);
-    showToast('Error al subir el archivo. Verifica Firebase Storage.','error');
+    const msg=(e.message||e.code||'').toLowerCase();
+    const isStoragePerm = msg.includes('storage/unauthorized') || msg.includes('permission') || msg.includes('403') || msg.includes('unauthorized');
+    const isStorageNotFound = msg.includes('storage/object-not-found') || msg.includes('storage/bucket-not-found') || msg.includes('not-found');
+    const isNoStorage = msg.includes('storage/no-bucket') || msg.includes('appspot');
+
+    if(isStoragePerm || isStorageNotFound || isNoStorage){
+      showStoragePermError();
+    } else {
+      showToast(`❌ Error al subir: ${e.message||e.code||'desconocido'}. Abre F12 para detalles.`,'error');
+      showStoragePermError(); // show anyway as it's the most common cause
+    }
   }
-  if(progEl) progEl.style.display='none';
+  if(progEl){ progEl.style.display='none'; if(progFill) progFill.style.width='0%'; }
+  if(uploadBtn){ uploadBtn.disabled=false; uploadBtn.textContent='⬆ Subir'; }
+}
+
+function showStoragePermError(){
+  // Remove existing banner if any
+  const old=document.getElementById('storage-perm-banner');
+  if(old) old.remove();
+
+  const banner=document.createElement('div');
+  banner.id='storage-perm-banner';
+  banner.style.cssText=
+    'position:fixed;top:64px;left:0;right:0;z-index:1600;'+
+    'background:#1A0A00;border-bottom:2px solid #FF9800;'+
+    'padding:14px 20px;font-size:0.85rem;color:#FFE0B0;line-height:1.8;'+
+    'display:flex;align-items:flex-start;gap:12px;box-shadow:0 4px 20px rgba(0,0,0,0.5)';
+
+  banner.innerHTML=
+    '<div style="font-size:1.5rem;flex-shrink:0;margin-top:2px">⚠️</div>'+
+    '<div style="flex:1">'+
+      '<strong style="font-size:0.95rem;color:#FFB74D">Firebase Storage bloqueando subida de archivos</strong><br>'+
+      'Las reglas de Storage no permiten escritura. Sigue estos pasos:<br>'+
+      '<div style="margin-top:8px;display:flex;flex-direction:column;gap:4px">'+
+        '<span>1️⃣ Ve a <a href="https://console.firebase.google.com" target="_blank" style="color:#4FA3E0;text-decoration:underline;font-weight:600">console.firebase.google.com</a></span>'+
+        '<span>2️⃣ Abre tu proyecto → menú lateral → <strong>Storage</strong></span>'+
+        '<span>3️⃣ Si ves "Comenzar" → actívalo primero (modo producción, región us-central1)</span>'+
+        '<span>4️⃣ Pestaña <strong>Reglas</strong> → reemplaza TODO con:</span>'+
+      '</div>'+
+      '<code style="display:block;margin:8px 0;background:#0B0B0F;border:1px solid #FF9800;padding:10px 14px;border-radius:6px;font-size:0.82rem;line-height:1.7;color:#F5CC6B;white-space:pre">'+
+'rules_version = \'2\';\nservice firebase.storage {\n  match /b/{bucket}/o {\n    match /{allPaths=**} {\n      allow read, write: if true;\n    }\n  }\n}'+
+      '</code>'+
+      '<span>5️⃣ Clic en <strong>Publicar</strong> → recarga la página → intenta subir de nuevo ✅</span>'+
+    '</div>'+
+    '<button onclick="document.getElementById(\'storage-perm-banner\').remove()" '+
+      'style="background:none;border:1px solid #FF9800;color:#FFB74D;cursor:pointer;'+
+      'font-size:0.8rem;flex-shrink:0;padding:4px 10px;border-radius:6px;margin-top:2px">'+
+      '✕ Cerrar</button>';
+
+  document.body.appendChild(banner);
+  // Scroll to top so user sees it
+  window.scrollTo({top:0,behavior:'smooth'});
 }
 
 async function removeMaterialTeacher(courseId, chIdx, matIdx){
