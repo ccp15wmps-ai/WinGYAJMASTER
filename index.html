@@ -1381,7 +1381,8 @@ async function submitPayment() {
   if(aiResult !== null) {
     // ── La IA respondió — evaluar resultado ──
     if(!aiResult.esComprobante) {
-      showPayVerifyStatus('error', 'La imagen no parece ser un comprobante de pago válido (Yape, Plin, BCP, BBVA). Sube una captura real del pago realizado.');
+      const razon = aiResult.razonRechazo ? ` Motivo: ${aiResult.razonRechazo}.` : '';
+      showPayVerifyStatus('error', 'La imagen subida no es un comprobante de pago válido (Yape, Plin, BCP, BBVA).' + razon + ' Por favor sube una captura de pantalla real de tu transferencia.');
       if(btn){ btn.disabled=false; btn.textContent='📤 Enviar Solicitud de Acceso'; }
       return;
     }
@@ -3059,34 +3060,71 @@ async function verifyPaymentWithAI(proofDataUrl, coursePrice) {
     const base64   = parts[1];
     const mediaType= parts[0].split(';')[0].split(':')[1] || 'image/jpeg';
 
-    const prompt = `Eres un sistema automatizado de verificación de comprobantes de pago para la plataforma educativa WinGYAJMaster (Perú).
+    const prompt = `Eres un sistema ESTRICTO de verificación de comprobantes de pago para WinGYAJMaster (Perú).
 
-Analiza CUIDADOSAMENTE la imagen del comprobante. Los comprobantes válidos son:
-- Yape → Yape: fondo morado, encabezado "¡Yapeaste!", campo "Destino: Yape"
-- Yape → Plin: fondo morado, encabezado "¡Yapeaste!", campo "Destino: Plin"
-- BCP → BCP: logo BCP, "¡Transferencia exitosa!", monto en azul S/ X.XX
-- BBVA → BCP: check verde, "Operación exitosa", datos de cuenta BCP de destino
-- Cualquier comprobante bancario peruano de transferencia exitosa
+TAREA: Determina si la imagen es un comprobante de transferencia bancaria REAL y EXITOSA.
 
-MONTO EXACTO ESPERADO: S/ ${coursePrice.toFixed(2)}
+══════════════════════════════════════════
+COMPROBANTES VÁLIDOS — características obligatorias:
+══════════════════════════════════════════
+1. YAPE → YAPE:
+   - Fondo MORADO oscuro (#6B2FA0)
+   - Texto "¡Yapeaste!" en morado claro
+   - Campo "Destino: Yape"
+   - Logo de Yape (letras blancas sobre morado)
+   - Monto S/ X visible
 
-El destinatario válido puede ser: "Winkel", "Perez Segura", "WinGYAJMaster" o similar.
+2. YAPE → PLIN:
+   - Fondo MORADO oscuro
+   - Texto "¡Yapeaste!"
+   - Campo "Destino: Plin"
+   - Monto S/ X visible
 
-INSTRUCCIONES:
-1. Busca el monto en la imagen (puede aparecer como "S/ X", "S/ X.XX", "Importe: S/ X", etc.)
-2. Compara ese monto con S/ ${coursePrice.toFixed(2)}
-3. Verifica que sea un comprobante de pago exitoso (no pendiente, no rechazado)
-4. Verifica que el destinatario corresponda a WinGYAJMaster
+3. BCP → BCP:
+   - Logo BCP (naranja/azul) visible
+   - Texto "¡Transferencia exitosa!"
+   - Monto en azul grande S/ X.XX
+   - Campos "Enviado a" y "Desde"
 
-Responde ÚNICAMENTE con JSON válido (sin markdown, sin texto extra):
-{"esComprobante":true,"montoEncontrado":${coursePrice.toFixed(2)},"montoCoincide":true,"esExitoso":true,"destinatarioCorrecto":true,"tipoComprobante":"yape-yape","razonRechazo":""}`;
+4. BBVA → BCP:
+   - Ícono check verde grande
+   - Texto "Operación exitosa"
+   - "Importe transferido" con monto S/ X.XX
+   - "Tipo de operación: Transferencia interbancaria"
+
+══════════════════════════════════════════
+CRITERIOS DE RECHAZO AUTOMÁTICO:
+══════════════════════════════════════════
+- Foto de persona, animal, objeto, paisaje → RECHAZAR
+- Captura de chat, redes sociales, correo → RECHAZAR
+- Imagen de texto genérico sin datos bancarios → RECHAZAR
+- Comprobante en estado "Pendiente" o "Rechazado" → RECHAZAR
+- Screenshot de video, película, juego → RECHAZAR
+- Monto diferente a S/ ${coursePrice.toFixed(2)} → RECHAZAR (montoCoincide: false)
+- No se ven claramente los datos del banco → RECHAZAR
+- Logo o interfaz de app bancaria ausente → RECHAZAR
+
+══════════════════════════════════════════
+MONTO ESPERADO EXACTO: S/ ${coursePrice.toFixed(2)}
+DESTINATARIO VÁLIDO: Winkel, Perez Segura, WinGYAJMaster o variante
+══════════════════════════════════════════
+
+PROCESO DE ANÁLISIS (sé muy estricto):
+1. ¿La imagen muestra una pantalla de app bancaria o de pagos? Si NO → esComprobante: false
+2. ¿Hay texto bancario claro ("Yapeaste", "Transferencia exitosa", "Operación exitosa")? Si NO → esComprobante: false
+3. ¿La operación está COMPLETADA (no pendiente, no en proceso)? Si NO → esExitoso: false
+4. ¿El monto visible en la imagen es exactamente S/ ${coursePrice.toFixed(2)}? Compara número a número.
+5. ¿Hay un destinatario que corresponde a WinGYAJMaster?
+
+Responde SOLO con JSON (sin markdown, sin texto adicional, sin explicaciones):
+{"esComprobante":false,"montoEncontrado":null,"montoCoincide":false,"esExitoso":false,"destinatarioCorrecto":false,"tipoComprobante":"desconocido","razonRechazo":"descripcion breve del por que se rechaza"}`;
 
     const resp = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         model: 'claude-sonnet-4-20250514',
-        max_tokens: 400,
+        max_tokens: 500,
         messages: [{
           role: 'user',
           content: [
@@ -3104,7 +3142,9 @@ Responde ÚNICAMENTE con JSON válido (sin markdown, sin texto extra):
     const startIdx = clean.indexOf('{');
     const endIdx   = clean.lastIndexOf('}');
     if(startIdx === -1 || endIdx === -1) return null;
-    return JSON.parse(clean.slice(startIdx, endIdx + 1));
+    const result = JSON.parse(clean.slice(startIdx, endIdx + 1));
+    console.log('[AI Payment Verify]', result);
+    return result;
   } catch(e) {
     console.error('AI verify error:', e);
     return null;
