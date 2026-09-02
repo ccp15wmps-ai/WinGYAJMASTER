@@ -692,6 +692,11 @@ body::before {
               <div class="form-group" style="margin:0;"><label>Número Plin</label><input type="text" id="cfg-plin" placeholder="Ej: 942 006 492" maxlength="20"></div>
             </div>
             <div style="background:var(--bg4);border:1px solid var(--border);border-radius:10px;padding:1.25rem;">
+              <div style="display:flex;align-items:center;gap:10px;margin-bottom:1rem;"><div style="width:38px;height:38px;border-radius:50%;background:rgba(0,180,255,0.15);display:flex;align-items:center;justify-content:center;font-size:1.1rem;">💙</div><div style="font-weight:600;">Plin (Scotiabank)</div></div>
+              <div class="form-group" style="margin:0;"><label>Número Plin vinculado a Scotiabank</label><input type="text" id="cfg-plin-scotia" placeholder="Ej: 942 006 492" maxlength="20"></div>
+              <p style="color:var(--text2);font-size:0.78rem;margin-top:6px;">Opcional. Déjalo vacío si no quieres mostrar esta opción a los estudiantes.</p>
+            </div>
+            <div style="background:var(--bg4);border:1px solid var(--border);border-radius:10px;padding:1.25rem;">
               <div style="display:flex;align-items:center;gap:10px;margin-bottom:1rem;"><div style="width:38px;height:38px;border-radius:50%;background:rgba(212,168,67,0.15);display:flex;align-items:center;justify-content:center;font-size:1.1rem;">🏦</div><div style="font-weight:600;">Banco</div></div>
               <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;">
                 <div class="form-group" style="margin:0;"><label>Banco</label>
@@ -784,6 +789,11 @@ body::before {
         <div class="payment-info"><strong>Plin</strong><span id="plin-num">Número: 942 006 492</span></div>
         <button class="payment-copy" onclick="copyText(this,'942006492')">Copiar</button>
       </div>
+      <div class="payment-method" id="pm-plin-scotia" style="display:none;">
+        <div class="payment-icon" style="background:rgba(0,180,255,0.15);color:#00B4FF;">💙</div>
+        <div class="payment-info"><strong>Plin (Scotiabank)</strong><span id="plin-scotia-num">Número: </span></div>
+        <button class="payment-copy" onclick="copyText(this,(document.getElementById('plin-scotia-num').textContent.replace('Número: ','').replace(/\s/g,'')))">Copiar</button>
+      </div>
       <div class="payment-method">
         <div class="payment-icon" style="background:rgba(212,168,67,0.15);color:var(--gold);">🏦</div>
         <div class="payment-info"><strong>BCP — Transferencia</strong><span id="bank-num">Cta: 30595352064002 · CCI: 00230519535206400219</span></div>
@@ -809,6 +819,11 @@ body::before {
           <div class="pt-icon">💜→💙</div>
           <div class="pt-name">Yape a Plin</div>
           <div class="pt-sub">Origen Yape</div>
+        </div>
+        <div class="pay-type-option" onclick="selectPayType('plin-yape')" id="pt-plin-yape">
+          <div class="pt-icon">💙→💜</div>
+          <div class="pt-name">Plin a Yape</div>
+          <div class="pt-sub">Cualquier banco (BBVA, Scotiabank, etc.)</div>
         </div>
         <div class="pay-type-option" onclick="selectPayType('bcp-bcp')" id="pt-bcp-bcp">
           <div class="pt-icon">🏦→🏦</div>
@@ -1029,7 +1044,7 @@ const SEC = {
 // ══════════════════════════════════════════════
 let CACHE = {
   config: {
-    yape:'942 006 492', plin:'942 006 492',
+    yape:'942 006 492', plin:'942 006 492', plinScotia:'',
     bank:'BCP|30595352064002|00230519535206400219|WinGYAJMaster',
     adminHash: SEC._hash('admin123')
   },
@@ -1217,9 +1232,13 @@ function syncPaymentModal() {
   const bp=(cfg.bank||'').split('|');
   const el_y=document.getElementById('yape-num');
   const el_p=document.getElementById('plin-num');
+  const el_ps=document.getElementById('plin-scotia-num');
+  const pm_ps=document.getElementById('pm-plin-scotia');
   const el_b=document.getElementById('bank-num');
   if(el_y) el_y.textContent='Número: '+(cfg.yape||'');
   if(el_p) el_p.textContent='Número: '+(cfg.plin||'');
+  if(el_ps) el_ps.textContent='Número: '+(cfg.plinScotia||'');
+  if(pm_ps) pm_ps.style.display=(cfg.plinScotia)?'flex':'none';
   if(el_b) el_b.textContent=(bp[0]||'BCP')+' Cta: '+(bp[1]||'')+((bp[2])?' · CCI: '+bp[2]:'');
 }
 
@@ -1400,7 +1419,7 @@ async function submitPayment() {
     const razon = aiResult.razonRechazo ? ` Motivo: ${aiResult.razonRechazo}` : '';
     showPayVerifyStatus('error',
       '❌ La imagen NO es un comprobante de pago válido.' + razon +
-      ' Sube una captura de pantalla de tu transferencia (Yape, BCP o BBVA).');
+      ' Sube una captura de pantalla de tu transferencia (Yape, Plin, BCP o BBVA/Scotiabank/otro banco).');
     if(btn){ btn.disabled=false; btn.textContent='📤 Enviar Solicitud de Acceso'; }
     return;
   }
@@ -1475,7 +1494,7 @@ async function submitPayment() {
 }
 
 function getPayTypeLabel(type) {
-  const map = {'yape-yape':'💜 Yape→Yape','yape-plin':'💜→💙 Yape→Plin','bcp-bcp':'🏦 BCP→BCP','bbva-bcp':'🏛 BBVA→BCP'};
+  const map = {'yape-yape':'💜 Yape→Yape','yape-plin':'💜→💙 Yape→Plin','plin-yape':'💙→💜 Plin→Yape','bcp-bcp':'🏦 BCP→BCP','bbva-bcp':'🏛 BBVA→BCP'};
   return map[type] || type || '';
 }
 
@@ -1673,8 +1692,8 @@ function renderExam(ch) {
   }
   area.innerHTML=`
     <div class="content-header">
-      <div class="content-chapter-tag">Examen Final – ${SEC.sanitize(ch.title)}</div>
-      <h1 class="content-title">Examen del Capítulo</h1>
+      <div class="content-chapter-tag">Evaluación del Capítulo – ${SEC.sanitize(ch.title)}</div>
+      <h1 class="content-title">Evaluación del Capítulo</h1>
       <p style="color:var(--text2);font-size:0.88rem">Necesitas al menos 70% para aprobar.</p>
     </div>
     <div class="exam-section">
@@ -2335,7 +2354,7 @@ function renderStats(){
   t.innerHTML='<tr><th>Estudiante</th><th>Curso</th><th>Tipo Pago</th><th>Monto</th><th>Estado</th><th>Fecha</th></tr>';
   payments.slice(-8).reverse().forEach(p=>{
     const c=CACHE.courses.find(c=>c.id===p.courseId);
-    const typeLabels={'yape-yape':'💜→💜 Y/Y','yape-plin':'💜→💙 Y/P','bcp-bcp':'🏦→🏦 BCP','bbva-bcp':'🏛→🏦 BBVA'};
+    const typeLabels={'yape-yape':'💜→💜 Y/Y','yape-plin':'💜→💙 Y/P','plin-yape':'💙→💜 P/Y','bcp-bcp':'🏦→🏦 BCP','bbva-bcp':'🏛→🏦 BBVA'};
     t.innerHTML+=`<tr>
       <td>${SEC.sanitize(p.name||'')}</td>
       <td>${SEC.sanitize(c?c.name:p.courseId||'')}</td>
@@ -2349,7 +2368,7 @@ function renderStats(){
 
 function renderPaymentsTable(){
   const t=document.getElementById('payments-table');
-  const typeLabels={'yape-yape':'💜→💜 Yape/Yape','yape-plin':'💜→💙 Yape/Plin','bcp-bcp':'🏦 BCP/BCP','bbva-bcp':'🏛 BBVA/BCP'};
+  const typeLabels={'yape-yape':'💜→💜 Yape/Yape','yape-plin':'💜→💙 Yape/Plin','plin-yape':'💙→💜 Plin/Yape','bcp-bcp':'🏦 BCP/BCP','bbva-bcp':'🏛 BBVA/BCP'};
   t.innerHTML='<tr><th>Comprobante</th><th>Nombre</th><th>Correo</th><th>Curso</th><th>Tipo</th><th>Monto</th><th>Estado</th><th>Fecha</th><th>Acciones</th></tr>';
   if(!CACHE.payments.length){ t.innerHTML+='<tr><td colspan="9" style="text-align:center;color:var(--text2);padding:2rem">Sin pagos aún</td></tr>'; return; }
   CACHE.payments.slice().reverse().forEach(p=>{
@@ -3097,6 +3116,7 @@ function loadConfigPanel(){
   const bp=(cfg.bank||'').split('|');
   document.getElementById('cfg-yape').value=cfg.yape||'';
   document.getElementById('cfg-plin').value=cfg.plin||'';
+  document.getElementById('cfg-plin-scotia').value=cfg.plinScotia||'';
   const sel=document.getElementById('cfg-bank-name');
   if(sel){ const opt=[...sel.options].find(o=>o.value===bp[0]); if(opt) sel.value=bp[0]; }
   document.getElementById('cfg-bank-num').value=bp[1]||'';
@@ -3129,14 +3149,15 @@ async function savePaymentConfig(){
   if(!requireAdmin()) return;
   const yape=SEC.str(document.getElementById('cfg-yape').value,20);
   const plin=SEC.str(document.getElementById('cfg-plin').value,20);
+  const plinScotia=SEC.str(document.getElementById('cfg-plin-scotia').value,20);
   const bname=SEC.str(document.getElementById('cfg-bank-name').value,30);
   const bnum=SEC.str(document.getElementById('cfg-bank-num').value,40);
   const bcci=SEC.str(document.getElementById('cfg-bank-cci').value,50);
   const bowner=SEC.str(document.getElementById('cfg-bank-owner').value,100);
   if(!yape&&!plin&&!bnum){ showAlert('cfg-payments-alert','Ingresa al menos un método de pago.','error'); return; }
   const bank=[bname,bnum,bcci,bowner].join('|');
-  CACHE.config={...CACHE.config,yape,plin,bank};
-  await fsSet('config','main',{yape,plin,bank,adminHash:CACHE.config.adminHash});
+  CACHE.config={...CACHE.config,yape,plin,plinScotia,bank};
+  await fsSet('config','main',{yape,plin,plinScotia,bank,adminHash:CACHE.config.adminHash});
   syncPaymentModal();
   showAlert('cfg-payments-alert','✅ Métodos de pago guardados.','success');
   showToast('✅ Configuración actualizada.','success');
@@ -3273,6 +3294,7 @@ IMÁGENES 1-4 = Modelos de referencia OFICIALES:
   Img2: BCP→BCP   | fondo blanco, logo BCP naranja, "¡Transferencia exitosa!", monto azul grande, "Enviado a"
   Img3: Yape→Plin | fondo MORADO, "¡Yapeaste!", "S/ X", nombre destinatario, "Destino: Plin", "Nro. de operación"
   Img4: Yape→Yape | fondo MORADO, "¡Yapeaste!", "S/ X", "CÓDIGO DE SEGURIDAD" 3 dígitos, "Destino: Yape"
+  Además, es un comprobante VÁLIDO si es una captura de la app Plin (fondo blanco, check verde, "Operación exitosa" o "¡Listo!", "Envío a contactos", "Importe enviado", "Entidad de destino: Yape" o "Entidad de destino: Plin", con "Cuenta de origen" de CUALQUIER banco: BBVA, BCP, Interbank, Scotiabank, BanBif, Pichincha, etc.). No rechaces el comprobante solo porque el banco de origen no coincide con los 4 modelos: lo relevante es que la app (Yape/Plin) y el destino sean correctos.
 
 IMAGEN 5 = El comprobante enviado por el estudiante.
 PRECIO DEL CURSO: S/ ${coursePrice.toFixed(2)}
@@ -3282,15 +3304,15 @@ ANÁLISIS OBLIGATORIO (paso a paso):
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 A) VALIDAR TIPO DE IMAGEN
-   Compara la imagen 5 visualmente con las imágenes 1-4.
-   ¿Tiene la misma estructura, colores y campos de algún modelo?
+   Compara la imagen 5 visualmente con las imágenes 1-4 y con el patrón adicional de Plin descrito arriba.
+   ¿Tiene la misma estructura, colores y campos de algún modelo (o del patrón Plin)?
    - Si es foto de persona/animal/cosa/paisaje → esComprobante: false, razonRechazo: "foto, no comprobante"
    - Si es chat/correo/redes sociales → esComprobante: false, razonRechazo: "captura de chat o red social"
-   - Si es otra app que NO sea Yape/BCP/BBVA → esComprobante: false
-   - Si se parece a alguno de los 4 modelos → continuar
+   - Si es otra app que NO sea Yape/Plin/BCP/BBVA (o transferencia interbancaria de cualquier banco hacia Yape/Plin/BCP) → esComprobante: false
+   - Si se parece a alguno de los 4 modelos o al patrón Plin → continuar
 
 B) VALIDAR ESTADO DE LA OPERACIÓN
-   Busca en imagen 5: "¡Yapeaste!", "¡Transferencia exitosa!", "Operación exitosa"
+   Busca en imagen 5: "¡Yapeaste!", "¡Transferencia exitosa!", "Operación exitosa", "¡Listo!"
    Si aparece "pendiente", "en proceso", "rechazado" o ningún texto de éxito → esExitoso: false
 
 C) LEER EL MONTO EXACTO
