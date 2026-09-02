@@ -578,6 +578,17 @@ body::before {
       <!-- ADD/EDIT COURSE -->
       <div class="admin-panel" id="admin-add-course">
         <h2 id="course-form-title">Nuevo Curso</h2>
+        <div style="background:var(--bg4);border:1px dashed var(--border);border-radius:var(--rad);padding:1rem 1.25rem;margin-bottom:1.5rem;display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap">
+          <div>
+            <strong style="display:block;font-size:0.92rem">📄 Importar curso desde Markdown (.md)</strong>
+            <span style="color:var(--text2);font-size:0.8rem">Sube un archivo con capítulos, prácticas y examen final en el formato del curso de ejemplo y se completará el formulario automáticamente.</span>
+          </div>
+          <div>
+            <input type="file" id="course-md-input" accept=".md,.markdown,text/markdown" style="display:none" onchange="importCourseMarkdown(event)">
+            <button class="btn btn-outline btn-sm" onclick="document.getElementById('course-md-input').click()">⬆ Subir .md</button>
+          </div>
+        </div>
+        <div id="md-import-alert"></div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem">
           <div class="form-group"><label>Nombre del Curso</label><input type="text" id="cf-name" placeholder="Ej: Programación en Python" maxlength="100"></div>
           <div class="form-group"><label>Área de Estudio</label>
@@ -2822,6 +2833,174 @@ function collectQuestions(chIdx,type){
     qs.push({q,opts,correct:cr?parseInt(cr.value):0});
   });
   return qs;
+}
+
+// ══════════════════════════════════════════════
+// IMPORTAR CURSO DESDE MARKDOWN (.md)
+// ══════════════════════════════════════════════
+function importCourseMarkdown(evt){
+  if(!requireAdmin()) return;
+  const file=evt.target.files[0];
+  evt.target.value='';
+  if(!file) return;
+  if(!/\.(md|markdown)$/i.test(file.name) && file.type!=='text/markdown'){
+    showAlert('md-import-alert','⚠️ El archivo debe ser .md o .markdown','error'); return;
+  }
+  if(file.size>2*1024*1024){ showAlert('md-import-alert','⚠️ Archivo muy grande (máx 2MB).','error'); return; }
+  const reader=new FileReader();
+  reader.onload=()=>{
+    try{
+      const parsed=parseCourseMarkdown(String(reader.result||''));
+      if(!parsed.chapters.length){
+        showAlert('md-import-alert','⚠️ No se encontraron capítulos con el formato esperado ("# Capítulo N: Título", "## N.4 Práctica", etc). Revisa el archivo.','error');
+        return;
+      }
+      applyParsedCourseToForm(parsed);
+      const nEx=parsed.examAttachedTo!=null?(parsed.chapters[parsed.examAttachedTo].exam||[]).length:0;
+      showAlert('md-import-alert',
+        `✅ Importado: ${parsed.chapters.length} capítulo(s), ${parsed.totalPractices} práctica(s)` +
+        (nEx?` y ${nEx} pregunta(s) de Examen Final (agregadas al último capítulo: "${parsed.chapters[parsed.examAttachedTo].title}").`:'.') +
+        ' Revisa los campos y guarda el curso.', 'success');
+      showToast('📄 Curso importado desde Markdown. Revisa antes de guardar.','success');
+    }catch(e){
+      console.error('Error importando markdown', e);
+      showAlert('md-import-alert','⚠️ No se pudo leer el archivo. Verifica que sea un .md válido con el formato esperado.','error');
+    }
+  };
+  reader.onerror=()=>showAlert('md-import-alert','⚠️ Error al leer el archivo.','error');
+  reader.readAsText(file,'utf-8');
+}
+
+function parseCourseMarkdown(text){
+  const rawLines=String(text).replace(/\r\n/g,'\n').split('\n');
+  // Marca qué líneas están dentro de un bloque de código ``` para no confundir
+  // comentarios de Python (#) con encabezados Markdown (#, ##).
+  let inFence=false;
+  const lines=rawLines.map(l=>{
+    const isFenceLine=/^\s*```/.test(l);
+    const wasInFence=inFence;
+    if(isFenceLine) inFence=!inFence;
+    return {text:l, header: !wasInFence && !isFenceLine};
+  });
+
+  const reChapter = /^#\s*Cap[ií]tulo\s*(\d+)\s*[:\-–]?\s*(.*)$/i;
+  const reExamenFinal = /^#\s*Examen\s*Final/i;
+  const reClaves = /^#\s*Claves?\s*de\s*respuestas/i;
+  const reAnyH1 = /^#\s+\S/;
+  const reConceptos = /^##\s*[\d.]*\s*Conceptos\s*b[aá]sicos/i;
+  const rePractica = /^##\s*[\d.]*\s*Pr[aá]ctica/i;
+  const reH2 = /^##\s+\S/;
+  const reQ = /^\*\*(\d+)\.\*\*\s*(.+)$/;
+  const reOpt = /^([a-dA-D])\)\s*(.*)$/;
+  const reClavesChapter = /^###\s*Cap[ií]tulo\s*(\d+)/i;
+  const reClavesExamen = /^###\s*Examen\s*Final/i;
+  const reKeyPairs = /(\d+)\s*-\s*([a-dA-D])/g;
+
+  // 1) Título del curso: primer H1 (fuera de bloque de código).
+  let courseName='';
+  for(const l of lines){ if(l.header && reAnyH1.test(l.text)){ courseName=l.text.replace(/^#\s*/,'').trim(); break; } }
+
+  // 2) Descripción: texto entre el título y el primer "# Capítulo".
+  let firstChapterLine=-1;
+  for(let i=0;i<lines.length;i++){ if(lines[i].header && reChapter.test(lines[i].text)){ firstChapterLine=i; break; } }
+  let desc='';
+  if(firstChapterLine>0){
+    desc=lines.slice(1,firstChapterLine).map(l=>l.text)
+      .filter(t=>t.trim() && t.trim()!=='---' && !/^#/.test(t.trim()))
+      .join(' ').replace(/\s+/g,' ').trim();
+  }
+
+  // 3) Índice de todos los H1 (fuera de fence) para delimitar bloques.
+  const h1Idx=[];
+  lines.forEach((l,i)=>{ if(l.header && reAnyH1.test(l.text)) h1Idx.push(i); });
+  h1Idx.push(lines.length);
+
+  function blockAfter(startIdx){
+    const pos=h1Idx.indexOf(startIdx);
+    const end=pos>=0?h1Idx[pos+1]:lines.length;
+    return lines.slice(startIdx, end);
+  }
+
+  function parseQuestions(blockLines){
+    const qs=[]; let current=null;
+    blockLines.forEach(l=>{
+      const t=l.text;
+      const mQ=reQ.exec(t);
+      if(mQ){ if(current) qs.push(current); current={num:parseInt(mQ[1]),q:mQ[2].trim(),opts:['','','',''],correct:0}; return; }
+      const mO=reOpt.exec(t);
+      if(mO && current){ const oi='abcd'.indexOf(mO[1].toLowerCase()); if(oi>=0) current.opts[oi]=mO[2].trim(); }
+    });
+    if(current) qs.push(current);
+    return qs;
+  }
+
+  function applyAnswerKey(qs,keyLine){
+    if(!keyLine) return qs;
+    const map={};
+    let m; reKeyPairs.lastIndex=0;
+    while((m=reKeyPairs.exec(keyLine))) map[parseInt(m[1])]='abcd'.indexOf(m[2].toLowerCase());
+    return qs.map(q=>({q:q.q,opts:q.opts,correct: map.hasOwnProperty(q.num)?map[q.num]:0}));
+  }
+
+  // 4) Buscar sección "Claves de respuestas" y extraer línea de claves por capítulo / examen final.
+  let clavesLineByChapter={}, clavesExamenFinal=null;
+  const clavesStart=lines.findIndex(l=>l.header && reClaves.test(l.text));
+  if(clavesStart>=0){
+    const clavesBlock=blockAfter(clavesStart);
+    let currentKey=null;
+    clavesBlock.forEach(l=>{
+      const t=l.text.trim(); if(!t) return;
+      const mCh=reClavesChapter.exec(t);
+      if(mCh){ currentKey='ch'+mCh[1]; return; }
+      if(reClavesExamen.test(t)){ currentKey='examen'; return; }
+      if(currentKey==='examen' && !clavesExamenFinal) clavesExamenFinal=t;
+      else if(currentKey && currentKey.startsWith('ch') && !clavesLineByChapter[currentKey]) clavesLineByChapter[currentKey]=t;
+    });
+  }
+
+  // 5) Capítulos.
+  const chapters=[]; let totalPractices=0;
+  h1Idx.forEach(idx=>{
+    if(idx>=lines.length) return;
+    if(!reChapter.test(lines[idx].text)) return;
+    const num=reChapter.exec(lines[idx].text)[1];
+    const title='Capítulo '+num+': '+(reChapter.exec(lines[idx].text)[2]||'').trim();
+    const block=blockAfter(idx);
+    // Encontrar dónde empieza la sección de Práctica (H2) dentro del capítulo.
+    let pracIdx=block.length;
+    for(let i=1;i<block.length;i++){ if(block[i].header && reH2.test(block[i].text) && rePractica.test(block[i].text)){ pracIdx=i; break; } }
+    const content=block.slice(1,pracIdx).map(l=>l.text).join('\n').trim().slice(0,5000);
+    let practices=parseQuestions(block.slice(pracIdx));
+    practices=applyAnswerKey(practices, clavesLineByChapter['ch'+num]);
+    totalPractices+=practices.length;
+    chapters.push({title, content, practices, exam:[]});
+  });
+
+  // 6) Examen Final (único, de todo el curso) → se adjunta al último capítulo.
+  let examAttachedTo=null;
+  const examIdx=lines.findIndex(l=>l.header && reExamenFinal.test(l.text));
+  if(examIdx>=0 && chapters.length){
+    const examBlock=blockAfter(examIdx);
+    let examQs=parseQuestions(examBlock);
+    examQs=applyAnswerKey(examQs, clavesExamenFinal);
+    if(examQs.length){ chapters[chapters.length-1].exam=examQs; examAttachedTo=chapters.length-1; }
+  }
+
+  return {name:courseName, desc:desc.slice(0,500), chapters, totalPractices, examAttachedTo};
+}
+
+function applyParsedCourseToForm(parsed){
+  resetCourseForm();
+  if(parsed.name) document.getElementById('cf-name').value=parsed.name.slice(0,100);
+  if(parsed.desc) document.getElementById('cf-desc').value=parsed.desc;
+  const iconEl=document.getElementById('cf-icon');
+  if(iconEl && !iconEl.value) iconEl.value=/python/i.test(parsed.name)?'🐍':'📘';
+  parsed.chapters.forEach(ch=>addChapterBuilder({
+    title: ch.title.slice(0,100),
+    content: ch.content,
+    practices: ch.practices.map(q=>({q:q.q.slice(0,300),opts:q.opts.map(o=>(o||'').slice(0,200)),correct:q.correct})),
+    exam: ch.exam.map(q=>({q:q.q.slice(0,300),opts:q.opts.map(o=>(o||'').slice(0,200)),correct:q.correct}))
+  }));
 }
 
 async function saveCourse(){
