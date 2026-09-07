@@ -707,6 +707,12 @@ body::before {
               <div class="form-group" style="margin-top:1rem;margin-bottom:0;"><label>CCI</label><input type="text" id="cfg-bank-cci" placeholder="00230519535206400219" maxlength="50"></div>
               <div class="form-group" style="margin-top:1rem;margin-bottom:0;"><label>Titular</label><input type="text" id="cfg-bank-owner" placeholder="Nombre del titular" maxlength="100"></div>
             </div>
+            <div style="background:var(--bg4);border:2px solid var(--gold);border-radius:10px;padding:1.25rem;">
+              <div style="display:flex;align-items:center;gap:10px;margin-bottom:1rem;"><div style="width:38px;height:38px;border-radius:50%;background:rgba(61,214,140,0.15);display:flex;align-items:center;justify-content:center;font-size:1.1rem;">🤖</div><div><div style="font-weight:600;">Verificación Automática (IA)</div><div style="color:var(--text2);font-size:0.78rem;">Revisa monto y destinatario del comprobante antes de aceptarlo</div></div></div>
+              <div class="form-group" style="margin:0;"><label>Nombre a validar (titular Yape/Plin/negocio)</label><input type="text" id="cfg-owner-name" placeholder="Ej: Winkel M Perez S / WinGYAJMaster" maxlength="150"></div>
+              <div class="form-group" style="margin-top:1rem;margin-bottom:0;"><label>URL del verificador (backend)</label><input type="text" id="cfg-verify-url" placeholder="https://tu-proyecto.vercel.app/api/verify-payment"></div>
+              <p style="color:var(--text2);font-size:0.78rem;margin-top:6px;">Si dejas la URL vacía, no se hace verificación automática y los pagos quedan en revisión manual.</p>
+            </div>
           </div>
           <div id="cfg-payments-alert" style="margin-top:1rem;"></div>
           <button class="btn btn-gold" style="margin-top:1.25rem;" onclick="savePaymentConfig()">💾 Guardar Métodos de Pago</button>
@@ -1045,6 +1051,7 @@ const SEC = {
 let CACHE = {
   config: {
     yape:'942 006 492', plin:'942 006 492', plinScotia:'',
+    ownerName:'', verifyApiUrl:'',
     bank:'BCP|30595352064002|00230519535206400219|WinGYAJMaster',
     adminHash: SEC._hash('admin123')
   },
@@ -1387,8 +1394,9 @@ async function submitPayment() {
   const courseId   = state._pendingCourseId;
   const course     = CACHE.courses.find(c=>c.id===courseId);
   const coursePrice= course ? parseFloat(course.price||0) : 0;
+  const cfg        = CACHE.config;
 
-  // ── Validación del MONTO (tolerancia de S/ 0.05) ──
+  // ── Validación previa del MONTO ingresado (tolerancia S/ 0.05) ──
   if(Math.abs(amount - coursePrice) > 0.05) {
     showPayVerifyStatus('error',
       `❌ El monto ingresado (S/ ${amount.toFixed(2)}) no coincide con el precio del curso (S/ ${coursePrice.toFixed(2)}). ` +
@@ -1397,17 +1405,75 @@ async function submitPayment() {
   }
 
   const btn=document.querySelector('#payment-modal .btn-gold');
-  if(btn){ btn.disabled=true; btn.textContent='💾 Guardando...'; }
-  showPayVerifyStatus('success',
-    `✅ Solicitud recibida · S/ ${coursePrice.toFixed(2)} · ${getPayTypeLabel(selectedPayType)}. Tu comprobante será revisado por el equipo.`);
+  let aiResult = null;
 
-  // ── Guardar en Firestore (revisión manual del admin con el comprobante adjunto) ──
+  // ── VERIFICACIÓN AUTOMÁTICA (si está configurada) ──
+  if(cfg.verifyApiUrl && cfg.ownerName) {
+    if(btn){ btn.disabled=true; btn.textContent='🔍 Verificando...'; }
+    showPayVerifyStatus('verifying', 'Analizando tu comprobante...');
+
+    let intentos = 0;
+    while(intentos < 2 && aiResult === null) {
+      intentos++;
+      try {
+        aiResult = await verifyPaymentWithAI(state.proofDataUrl, coursePrice, cfg.ownerName, cfg.verifyApiUrl);
+      } catch(e) {
+        console.error('AI verify attempt', intentos, e);
+        if(intentos < 2) await new Promise(r=>setTimeout(r,1200));
+      }
+    }
+
+    if(aiResult === null) {
+      showPayVerifyStatus('error',
+        'No se pudo verificar el comprobante automáticamente. Revisa tu conexión e inténtalo de nuevo.');
+      if(btn){ btn.disabled=false; btn.textContent='📤 Enviar Solicitud de Acceso'; }
+      return;
+    }
+
+    if(!aiResult.esComprobante) {
+      const razon = aiResult.razonRechazo ? ` Motivo: ${aiResult.razonRechazo}` : '';
+      showPayVerifyStatus('error',
+        '❌ La imagen no parece ser un comprobante de pago válido.' + razon +
+        ' Sube una captura, foto o escaneo real de tu transferencia.');
+      if(btn){ btn.disabled=false; btn.textContent='📤 Enviar Solicitud de Acceso'; }
+      return;
+    }
+    if(!aiResult.esExitoso) {
+      showPayVerifyStatus('error',
+        '❌ El comprobante no muestra una operación exitosa/completada.');
+      if(btn){ btn.disabled=false; btn.textContent='📤 Enviar Solicitud de Acceso'; }
+      return;
+    }
+    if(!aiResult.montoCoincide) {
+      const found = (aiResult.montoEncontrado != null) ? `S/ ${parseFloat(aiResult.montoEncontrado).toFixed(2)}` : 'no legible';
+      showPayVerifyStatus('error',
+        `❌ El monto detectado en el comprobante (${found}) no coincide con S/ ${coursePrice.toFixed(2)}.`);
+      if(btn){ btn.disabled=false; btn.textContent='📤 Enviar Solicitud de Acceso'; }
+      return;
+    }
+    if(!aiResult.nombreDestinatarioCoincide) {
+      showPayVerifyStatus('error',
+        '❌ El destinatario del comprobante no coincide con nuestra cuenta. Verifica que el pago haya sido dirigido correctamente.');
+      if(btn){ btn.disabled=false; btn.textContent='📤 Enviar Solicitud de Acceso'; }
+      return;
+    }
+
+    showPayVerifyStatus('success', `✅ Comprobante verificado · S/ ${coursePrice.toFixed(2)} confirmado`);
+    await new Promise(r=>setTimeout(r,1000));
+  } else {
+    showPayVerifyStatus('success', `✅ Solicitud recibida · S/ ${coursePrice.toFixed(2)} · ${getPayTypeLabel(selectedPayType)}. Tu comprobante será revisado por el equipo.`);
+  }
+
+  if(btn){ btn.disabled=true; btn.textContent='💾 Guardando...'; }
+
+  // ── Guardar en Firestore ──
   const payData={
     courseId, studentId, name, email,
     payType: selectedPayType,
-    amountPaid: amount,
+    amountPaid: aiResult ? (aiResult.montoEncontrado ?? amount) : amount,
     proof: state.proofDataUrl,
-    aiVerified: false,
+    aiVerified: !!aiResult,
+
     status: 'pending',
     date: new Date().toISOString()
   };
@@ -3055,6 +3121,8 @@ function loadConfigPanel(){
   document.getElementById('cfg-yape').value=cfg.yape||'';
   document.getElementById('cfg-plin').value=cfg.plin||'';
   document.getElementById('cfg-plin-scotia').value=cfg.plinScotia||'';
+  document.getElementById('cfg-owner-name').value=cfg.ownerName||'';
+  document.getElementById('cfg-verify-url').value=cfg.verifyApiUrl||'';
   const sel=document.getElementById('cfg-bank-name');
   if(sel){ const opt=[...sel.options].find(o=>o.value===bp[0]); if(opt) sel.value=bp[0]; }
   document.getElementById('cfg-bank-num').value=bp[1]||'';
@@ -3088,14 +3156,16 @@ async function savePaymentConfig(){
   const yape=SEC.str(document.getElementById('cfg-yape').value,20);
   const plin=SEC.str(document.getElementById('cfg-plin').value,20);
   const plinScotia=SEC.str(document.getElementById('cfg-plin-scotia').value,20);
+  const ownerName=SEC.str(document.getElementById('cfg-owner-name').value,150);
+  const verifyApiUrl=SEC.str(document.getElementById('cfg-verify-url').value,300);
   const bname=SEC.str(document.getElementById('cfg-bank-name').value,30);
   const bnum=SEC.str(document.getElementById('cfg-bank-num').value,40);
   const bcci=SEC.str(document.getElementById('cfg-bank-cci').value,50);
   const bowner=SEC.str(document.getElementById('cfg-bank-owner').value,100);
   if(!yape&&!plin&&!bnum){ showAlert('cfg-payments-alert','Ingresa al menos un método de pago.','error'); return; }
   const bank=[bname,bnum,bcci,bowner].join('|');
-  CACHE.config={...CACHE.config,yape,plin,plinScotia,bank};
-  await fsSet('config','main',{yape,plin,plinScotia,bank,adminHash:CACHE.config.adminHash});
+  CACHE.config={...CACHE.config,yape,plin,plinScotia,ownerName,verifyApiUrl,bank};
+  await fsSet('config','main',{yape,plin,plinScotia,ownerName,verifyApiUrl,bank,adminHash:CACHE.config.adminHash});
   syncPaymentModal();
   showAlert('cfg-payments-alert','✅ Métodos de pago guardados.','success');
   showToast('✅ Configuración actualizada.','success');
@@ -3207,6 +3277,28 @@ setInterval(()=>{
   if(document.getElementById('page-admin').classList.contains('active')&&!SEC.getSession()){ showPage('home'); showToast('Sesión expirada.','error'); }
   if(document.getElementById('page-teacher').classList.contains('active')&&!SEC.getTeacherSession()){ showPage('home'); showToast('Sesión de docente expirada.','error'); }
 },30000);
+
+// ══════════════════════════════════════════════
+// VERIFICACIÓN DE PAGO VÍA BACKEND (Claude Vision, seguro)
+// ══════════════════════════════════════════════
+async function verifyPaymentWithAI(proofDataUrl, coursePrice, ownerName, apiUrl) {
+  const parts     = proofDataUrl.split(',');
+  const imageBase64 = parts[1];
+  const mediaType = parts[0].split(';')[0].split(':')[1] || 'image/jpeg';
+
+  const resp = await fetch(apiUrl, {
+    method : 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body   : JSON.stringify({ imageBase64, mediaType, coursePrice, ownerName })
+  });
+
+  if(!resp.ok) {
+    const errText = await resp.text().catch(()=>'');
+    console.error('verify-payment backend error:', resp.status, errText);
+    throw new Error('backend error '+resp.status);
+  }
+  return await resp.json();
+}
 
 // ══════════════════════════════════════════════
 // PAYMENT VERIFICATION STATUS UI
