@@ -602,6 +602,17 @@ body::before {
           </div>
         </div>
         <div id="md-import-alert"></div>
+        <div style="background:var(--bg4);border:1px dashed var(--border);border-radius:var(--rad);padding:1rem 1.25rem;margin-bottom:1.5rem;display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap">
+          <div>
+            <strong style="display:block;font-size:0.92rem">🌐 Importar curso desde HTML (.html)</strong>
+            <span style="color:var(--text2);font-size:0.8rem">Sube el archivo .html del curso (con arreglo <code>chapters</code>, funciones <code>qCapN...</code> y opcional <code>finalExamQuestions</code>) y se completará el formulario automáticamente, sin pasar por Markdown.</span>
+          </div>
+          <div>
+            <input type="file" id="course-html-input" accept=".html,.htm,text/html" style="display:none" onchange="importCourseHTML(event)">
+            <button class="btn btn-outline btn-sm" onclick="document.getElementById('course-html-input').click()">⬆ Subir .html</button>
+          </div>
+        </div>
+        <div id="html-import-alert"></div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem">
           <div class="form-group"><label>Nombre del Curso</label><input type="text" id="cf-name" placeholder="Ej: Programación en Python" maxlength="100"></div>
           <div class="form-group"><label>Área de Estudio</label>
@@ -2929,6 +2940,138 @@ function collectQuestions(chIdx,type){
 // ══════════════════════════════════════════════
 // IMPORTAR CURSO DESDE MARKDOWN (.md)
 // ══════════════════════════════════════════════
+function importCourseHTML(evt){
+  if(!requireAdmin()) return;
+  const file=evt.target.files[0];
+  evt.target.value='';
+  if(!file) return;
+  if(!/\.(html?|htm)$/i.test(file.name) && file.type!=='text/html'){
+    showAlert('html-import-alert','⚠️ El archivo debe ser .html o .htm','error'); return;
+  }
+  if(file.size>3*1024*1024){ showAlert('html-import-alert','⚠️ Archivo muy grande (máx 3MB).','error'); return; }
+  const reader=new FileReader();
+  reader.onload=()=>{
+    try{
+      const parsed=parseCourseHTML(String(reader.result||''));
+      if(!parsed.chapters.length){
+        showAlert('html-import-alert','⚠️ No se encontraron capítulos. El archivo debe tener un arreglo <code>chapters</code> con {id, title, reading} y funciones que retornen preguntas ({question, options, answerIndex}).','error');
+        return;
+      }
+      applyParsedCourseToForm(parsed);
+      const nEx=parsed.examAttachedTo!=null?(parsed.chapters[parsed.examAttachedTo].exam||[]).length:0;
+      showAlert('html-import-alert',
+        `✅ Importado: ${parsed.chapters.length} capítulo(s), ${parsed.totalPractices} práctica(s)` +
+        (nEx?` y ${nEx} pregunta(s) de Examen Final (agregadas al último capítulo: "${parsed.chapters[parsed.examAttachedTo].title}").`:'.') +
+        ' Revisa los campos y guarda el curso.', 'success');
+    }catch(e){
+      console.error('Error importando HTML', e);
+      showAlert('html-import-alert','⚠️ No se pudo leer el archivo. Verifica que tenga la estructura esperada (chapters, qCapN...).','error');
+    }
+  };
+  reader.onerror=()=>showAlert('html-import-alert','⚠️ Error al leer el archivo.','error');
+  reader.readAsText(file,'utf-8');
+}
+
+// Busca, a partir de startIdx (que debe apuntar al carácter de apertura openCh),
+// el índice del carácter de cierre closeCh que le corresponde, ignorando
+// llaves/corchetes que aparezcan dentro de strings o template literals.
+function findBalanced(text, startIdx, openCh, closeCh){
+  let depth=0, inStr=false, strCh='', inTemplate=false, escape=false;
+  for(let i=startIdx; i<text.length; i++){
+    const c=text[i];
+    if(escape){ escape=false; continue; }
+    if(c==='\\'){ escape=true; continue; }
+    if(inTemplate){ if(c==='`') inTemplate=false; continue; }
+    if(inStr){ if(c===strCh) inStr=false; continue; }
+    if(c==='`'){ inTemplate=true; continue; }
+    if(c==='"'||c==="'"){ inStr=true; strCh=c; continue; }
+    if(c===openCh) depth++;
+    else if(c===closeCh){ depth--; if(depth===0) return i; }
+  }
+  return -1;
+}
+
+// Extrae y evalúa (de forma aislada, SOLO el literal de datos, sin ejecutar
+// el resto del script) el arreglo declarado como "nombreVar = [ ... ]".
+function extractArrayLiteral(code, varName){
+  const re=new RegExp('\\b'+varName+'\\s*=\\s*\\[');
+  const m=re.exec(code);
+  if(!m) return null;
+  const bracketStart=code.indexOf('[', m.index);
+  const bracketEnd=findBalanced(code, bracketStart, '[', ']');
+  if(bracketEnd===-1) return null;
+  const literal=code.slice(bracketStart, bracketEnd+1);
+  try{ return new Function('return '+literal)(); }
+  catch(e){ console.error('Error parseando arreglo', varName, e); return null; }
+}
+
+// Extrae todas las funciones "function qCapN...(){ ... return [ ... ]; }" y
+// agrupa las preguntas por número de capítulo (N), evaluando solo el arreglo
+// que retornan (nunca el resto del código del archivo).
+function extractPracticeFunctions(code){
+  const byChapter={};
+  const fnRe=/function\s+qCap(\d+)[A-Za-z0-9_]*\s*\(\s*\)\s*\{/g;
+  let m;
+  while((m=fnRe.exec(code))){
+    const chNum=parseInt(m[1]);
+    const braceStart=code.indexOf('{', m.index);
+    const braceEnd=findBalanced(code, braceStart, '{', '}');
+    if(braceEnd===-1) continue;
+    const body=code.slice(braceStart, braceEnd+1);
+    const retIdx=body.indexOf('return');
+    if(retIdx===-1) continue;
+    const bracketStart=body.indexOf('[', retIdx);
+    if(bracketStart===-1) continue;
+    const bracketEnd=findBalanced(body, bracketStart, '[', ']');
+    if(bracketEnd===-1) continue;
+    const literal=body.slice(bracketStart, bracketEnd+1);
+    let arr;
+    try{ arr=new Function('return '+literal)(); }
+    catch(e){ console.error('Error parseando función qCap'+chNum, e); continue; }
+    if(!Array.isArray(arr)) continue;
+    if(!byChapter[chNum]) byChapter[chNum]=[];
+    byChapter[chNum]=byChapter[chNum].concat(arr);
+  }
+  return byChapter;
+}
+
+function parseCourseHTML(text){
+  const scriptBlocks=[...text.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi)].map(m=>m[1]);
+  const code=scriptBlocks.join('\n\n');
+
+  // Nombre del curso: <title> del documento
+  let name='';
+  const titleM=/<title>([\s\S]*?)<\/title>/i.exec(text);
+  if(titleM) name=titleM[1].replace(/[–\-]\s*WinGYAJMASTER.*$/i,'').trim();
+
+  const chaptersRaw=extractArrayLiteral(code,'chapters')||[];
+  const finalExamRaw=extractArrayLiteral(code,'finalExamQuestions');
+  const practicesByChapter=extractPracticeFunctions(code);
+
+  const chapters=chaptersRaw.map(ch=>{
+    const qs=practicesByChapter[ch.id]||[];
+    return {
+      title: SEC.str(ch.title||('Capítulo '+(ch.id||'')),100),
+      content: SEC.str(String(ch.reading||'').trim(),20000),
+      practices: qs.map(q=>({ q:SEC.str(q.question||'',300), opts:(q.options||[]).map(o=>SEC.str(o||'',200)), correct: q.answerIndex||0 })),
+      exam: []
+    };
+  });
+
+  let totalPractices=0;
+  chapters.forEach(c=>totalPractices+=c.practices.length);
+
+  let examAttachedTo=null;
+  if(finalExamRaw && finalExamRaw.length && chapters.length){
+    chapters[chapters.length-1].exam=finalExamRaw.map(q=>({
+      q:SEC.str(q.question||'',300), opts:(q.options||[]).map(o=>SEC.str(o||'',200)), correct: q.answerIndex||0
+    }));
+    examAttachedTo=chapters.length-1;
+  }
+
+  return { name: name||'Curso importado desde HTML', desc:'', chapters, totalPractices, examAttachedTo };
+}
+
 function importCourseMarkdown(evt){
   if(!requireAdmin()) return;
   const file=evt.target.files[0];
