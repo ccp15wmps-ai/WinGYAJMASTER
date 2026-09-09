@@ -142,7 +142,20 @@ select option{background:var(--bg3);}
 .content-header{margin-bottom:2rem;padding-bottom:1.5rem;border-bottom:1px solid var(--border);}
 .content-chapter-tag{color:var(--gold);font-size:0.8rem;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:0.5rem;}
 .content-title{font-family:'Playfair Display',serif;font-size:1.8rem;font-weight:700;margin-bottom:0.5rem;}
-.content-body{line-height:1.8;color:var(--text2);white-space:pre-wrap;}
+.content-body{line-height:1.8;color:var(--text2);}
+.content-body h1,.content-body h2,.content-body h3,.content-body h4{color:var(--gold);margin:1.2em 0 0.5em;line-height:1.3;}
+.content-body p{margin:0 0 1em;}
+.content-body ul,.content-body ol{margin:0 0 1em 1.4em;}
+.content-body li{margin-bottom:0.4em;}
+.content-body code{background:var(--bg4);padding:2px 6px;border-radius:4px;font-family:'Courier New',monospace;font-size:0.9em;color:var(--gold);}
+.content-body pre{background:var(--bg4);padding:1em;border-radius:8px;overflow-x:auto;margin:0 0 1em;}
+.content-body pre code{background:none;padding:0;color:var(--text);}
+.content-body table{border-collapse:collapse;width:100%;margin:0 0 1em;}
+.content-body th,.content-body td{border:1px solid var(--border);padding:8px 10px;text-align:left;}
+.content-body th{background:var(--bg4);color:var(--gold);}
+.content-body img{max-width:100%;border-radius:8px;margin:0.5em 0;}
+.content-body blockquote{border-left:3px solid var(--gold);padding:0.5em 1em;margin:0 0 1em;color:var(--text2);font-style:italic;}
+.content-body a{color:var(--gold);text-decoration:underline;}
 
 /* MATERIALS */
 .materials-section{margin:2rem 0;background:var(--bg3);border:1px solid var(--border);border-radius:var(--rad);padding:1.5rem;}
@@ -996,6 +1009,61 @@ const SEC = {
     return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
               .replace(/"/g,'&quot;').replace(/'/g,'&#39;').replace(/\//g,'&#x2F;');
   },
+  // Sanitizador de HTML "didáctico": permite formato (títulos, negritas, listas,
+  // tablas, código, imágenes, enlaces) pero elimina TODO lo peligroso
+  // (scripts, iframes, forms, atributos on*, javascript:, etc.)
+  ALLOWED_TAGS: new Set(['P','BR','STRONG','B','EM','I','U','S','MARK','SMALL','SUB','SUP',
+    'H1','H2','H3','H4','H5','H6','UL','OL','LI','BLOCKQUOTE','CODE','PRE',
+    'TABLE','THEAD','TBODY','TFOOT','TR','TH','TD','A','IMG','DIV','SPAN','HR',
+    'FIGURE','FIGCAPTION','CAPTION']),
+  ALLOWED_ATTRS: { 'A':['href','title','target'], 'IMG':['src','alt','title','width','height'],
+    '*':['class','style'] },
+  sanitizeHTML(html) {
+    if (typeof html !== 'string') return '';
+    let src = html.replace(/\r\n/g,'\n');
+    const looksLikeHTML = /<(p|div|h[1-6]|ul|ol|li|table|pre|blockquote|img|br|strong|em|b|i|span|a)\b/i.test(src);
+    if (!looksLikeHTML) {
+      // Texto plano: respeta los saltos de línea del usuario como <br>
+      src = src.split('\n').map(l=>l).join('<br>');
+    }
+    const doc = new DOMParser().parseFromString(src, 'text/html');
+    const walk = (node) => {
+      [...node.childNodes].forEach(child => {
+        if (child.nodeType === 1) { // ELEMENT_NODE
+          const tag = child.tagName;
+          if (!SEC.ALLOWED_TAGS.has(tag)) {
+            const text = document.createTextNode(child.textContent);
+            child.replaceWith(text);
+            return;
+          }
+          [...child.attributes].forEach(attr => {
+            const name = attr.name.toLowerCase();
+            const allowedForTag = SEC.ALLOWED_ATTRS[tag]||[];
+            const allowedGlobal = SEC.ALLOWED_ATTRS['*'];
+            if (name.startsWith('on') || (!allowedForTag.includes(name) && !allowedGlobal.includes(name))) {
+              child.removeAttribute(attr.name); return;
+            }
+            if ((name==='href'||name==='src')) {
+              const val=(attr.value||'').trim().toLowerCase();
+              if (val.startsWith('javascript:') || val.startsWith('data:text/html') || val.startsWith('vbscript:')) {
+                child.removeAttribute(attr.name);
+              }
+            }
+            if (name==='style') {
+              const val=attr.value||'';
+              if (/javascript:|expression\(|url\(/i.test(val)) child.removeAttribute('style');
+            }
+          });
+          if (tag==='A') child.setAttribute('rel','noopener noreferrer');
+          walk(child);
+        } else if (child.nodeType === 8) { // COMMENT_NODE
+          child.remove();
+        }
+      });
+    };
+    walk(doc.body);
+    return doc.body.innerHTML;
+  },
   str(v, maxLen=200) { return typeof v==='string' ? v.trim().slice(0,maxLen) : ''; },
   num(v, min=0, max=99999) { const n=parseFloat(v); return isNaN(n)?0:Math.min(Math.max(n,min),max); },
   email(v) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(v).toLowerCase()); },
@@ -1606,7 +1674,7 @@ function renderChapterContent() {
         <h1 class="content-title">${SEC.sanitize(ch.title)}</h1>
         <span style="color:var(--text2);font-size:0.85rem">📚 ${SEC.sanitize(course.name)}</span>
       </div>
-      <div class="content-body">${SEC.sanitize(ch.content)}</div>
+      <div class="content-body">${SEC.sanitizeHTML(ch.content)}</div>
       ${matsHtml}
       <div style="margin-top:2rem"><button class="btn btn-gold" onclick="startPractices()">➡ Ir a Prácticas</button></div>`;
   } else if(state.currentView==='practices') {
@@ -2150,7 +2218,7 @@ function renderTeacherClassesContent(){
     </div>
     <div class="form-group" style="margin-bottom:0">
       <label style="font-size:0.82rem">Contenido</label>
-      <textarea class="tch-content-area" id="tch-content-${c.id}-${ci}" maxlength="5000"
+      <textarea class="tch-content-area" id="tch-content-${c.id}-${ci}" maxlength="20000"
         placeholder="Escribe el contenido educativo de esta clase…">${SEC.sanitize(ch.content||'')}</textarea>
     </div>
   </div>`).join('');
@@ -2171,7 +2239,7 @@ async function saveChapterTeacher(courseId, chIdx){
   const titleEl=document.getElementById(`tch-title-${courseId}-${chIdx}`);
   const contentEl=document.getElementById(`tch-content-${courseId}-${chIdx}`);
   const title=SEC.str(titleEl?titleEl.value:'',100);
-  const content=SEC.str(contentEl?contentEl.value:'',5000);
+  const content=SEC.str(contentEl?contentEl.value:'',20000);
   if(!title){ showToast('El título no puede estar vacío.','error'); return; }
   const chapters=JSON.parse(JSON.stringify(course.chapters||[]));
   if(!chapters[chIdx]) return;
@@ -2801,7 +2869,7 @@ function addChapterBuilder(chData=null){
       <button class="btn btn-danger btn-sm" onclick="removeChapter(${idx})">Eliminar</button>
     </div>
     <div class="form-group"><label>Título</label><input type="text" id="ch-title-${idx}" placeholder="Ej: Fundamentos básicos" maxlength="100" value="${chData?SEC.sanitize(chData.title):''}"></div>
-    <div class="form-group"><label>Contenido</label><textarea id="ch-content-${idx}" rows="4" placeholder="Escribe el contenido educativo..." maxlength="5000">${chData?SEC.sanitize(chData.content):''}</textarea></div>
+    <div class="form-group"><label>Contenido</label><textarea id="ch-content-${idx}" rows="4" placeholder="Escribe el contenido educativo..." maxlength="20000">${chData?SEC.sanitize(chData.content):''}</textarea></div>
     <div style="margin:1rem 0;font-weight:600;font-size:0.9rem">🏋 Prácticas</div>
     <div id="practices-builder-${idx}"></div>
     <div class="add-q-btn" onclick="addQuestion(${idx},'practice')">+ Agregar Práctica</div>
@@ -2992,7 +3060,7 @@ function parseCourseMarkdown(text){
     // Encontrar dónde empieza la sección de Práctica (H2) dentro del capítulo.
     let pracIdx=block.length;
     for(let i=1;i<block.length;i++){ if(block[i].header && reH2.test(block[i].text) && rePractica.test(block[i].text)){ pracIdx=i; break; } }
-    const content=block.slice(1,pracIdx).map(l=>l.text).join('\n').trim().slice(0,5000);
+    const content=block.slice(1,pracIdx).map(l=>l.text).join('\n').trim().slice(0,20000);
     let practices=parseQuestions(block.slice(pracIdx));
     practices=applyAnswerKey(practices, clavesLineByChapter['ch'+num]);
     totalPractices+=practices.length;
@@ -3041,7 +3109,7 @@ async function saveCourse(){
   chBuilders.forEach((cb,i)=>{
     const idx=cb.id.replace('chbuilder-','');
     const title=SEC.str(document.getElementById(`ch-title-${idx}`)?.value||'',100);
-    const content=SEC.str(document.getElementById(`ch-content-${idx}`)?.value||'',5000);
+    const content=SEC.str(document.getElementById(`ch-content-${idx}`)?.value||'',20000);
     if(!title){ showToast(`Capítulo ${i+1}: necesita título.`,'error'); valid=false; return; }
     const practices=collectQuestions(idx,'practice');
     const exam=collectQuestions(idx,'exam');
