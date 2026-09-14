@@ -560,6 +560,7 @@ body::before {
       <div class="admin-menu-item" onclick="switchAdmin('courses')" data-panel="courses">📚 Cursos</div>
       <div class="admin-menu-item" onclick="switchAdmin('add-course')" data-panel="add-course">➕ Nuevo Curso</div>
       <div class="admin-menu-item" onclick="switchAdmin('students')" data-panel="students">👥 Estudiantes</div>
+      <div class="admin-menu-item" onclick="switchAdmin('certificates')" data-panel="certificates">🏆 Certificados</div>
       <div class="admin-menu-item" onclick="switchAdmin('teachers')" data-panel="teachers">👩‍🏫 Docentes</div>
       <div class="admin-menu-item" onclick="switchAdmin('config')" data-panel="config">⚙️ Configuración</div>
       <div style="padding:1rem 1.5rem;margin-top:1rem;border-top:1px solid var(--border);">
@@ -642,6 +643,19 @@ body::before {
       <div class="admin-panel" id="admin-students">
         <h2>Estudiantes</h2>
         <div class="table-wrap"><table id="students-table"></table></div>
+      </div>
+      <!-- CERTIFICATES -->
+      <div class="admin-panel" id="admin-certificates">
+        <h2>🏆 Certificados Emitidos</h2>
+        <div style="background:var(--bg4);border:1px dashed var(--border);border-radius:var(--rad);padding:1rem 1.25rem;margin-bottom:1.5rem;display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap">
+          <div>
+            <strong style="display:block;font-size:0.92rem">🔄 Generar certificados faltantes</strong>
+            <span style="color:var(--text2);font-size:0.8rem">Revisa a TODOS los estudiantes y crea el certificado de cualquier curso que ya hayan completado al 100% pero que aún no tenga certificado (incluye alumnos que terminaron antes de esta función).</span>
+          </div>
+          <button class="btn btn-gold btn-sm" onclick="backfillCertificates()">🔄 Buscar y generar</button>
+        </div>
+        <div id="cert-backfill-alert"></div>
+        <div class="table-wrap"><table id="certificates-table"></table></div>
       </div>
       <!-- TEACHERS -->
       <div class="admin-panel" id="admin-teachers">
@@ -978,6 +992,26 @@ body::before {
   </div>
 </div>
 
+<!-- EDIT CERTIFICATE MODAL -->
+<div class="modal-overlay" id="edit-cert-modal">
+  <div class="modal" style="max-width:480px">
+    <button class="modal-close" onclick="closeModal('edit-cert-modal')">✕</button>
+    <h2 style="margin-bottom:1.25rem">✏️ Editar Certificado</h2>
+    <input type="hidden" id="ecert-docid">
+    <div class="form-group"><label>Nombre del estudiante (como aparece en el certificado)</label>
+      <input type="text" id="ecert-name" maxlength="100"></div>
+    <div class="form-group" style="margin-top:1rem"><label>Nombre del curso (como aparece en el certificado)</label>
+      <input type="text" id="ecert-course" maxlength="150"></div>
+    <div class="form-group" style="margin-top:1rem"><label>Fecha de emisión</label>
+      <input type="date" id="ecert-date"></div>
+    <div id="edit-cert-alert" style="margin-top:0.75rem"></div>
+    <div style="display:flex;gap:0.75rem;margin-top:1.25rem">
+      <button class="btn btn-gold" style="flex:1" onclick="saveCertificateEdit()">💾 Guardar Cambios</button>
+      <button class="btn btn-outline" onclick="closeModal('edit-cert-modal')">Cancelar</button>
+    </div>
+  </div>
+</div>
+
 <!-- CERTIFICATE OVERLAY -->
 <div id="cert-overlay">
   <div style="font-family:'Playfair Display',serif;font-size:1.5rem;color:var(--gold)">🏆 ¡Certificado Obtenido!</div>
@@ -1134,7 +1168,7 @@ let CACHE = {
     bank:'BCP|30595352064002|00230519535206400219|WinGYAJMaster',
     adminHash: SEC._hash('admin123')
   },
-  courses: [], payments: [], students: [], teachers: [], progress: {}
+  courses: [], payments: [], students: [], teachers: [], progress: {}, certificates: []
 };
 
 const studentId = localStorage.getItem('wgym_sid') || (()=>{
@@ -1407,7 +1441,9 @@ function renderCoursesGrid() {
         ${hasAccess?`<div class="progress-bar-wrap"><div class="progress-bar-fill" style="width:${pct}%"></div></div>`:''}
         <div class="course-price">
           <span class="price-amount">S/ ${parseFloat(c.price||0).toFixed(2)}</span>
-          <button class="btn btn-gold btn-sm">${hasAccess?'Continuar':'Inscribirse'}</button>
+          ${pct===100
+            ? `<button class="btn btn-gold btn-sm" onclick="event.stopPropagation();openCertificateForCourse('${SEC.sanitize(c.id)}')">🏆 Certificado</button>`
+            : `<button class="btn btn-gold btn-sm">${hasAccess?'Continuar':'Inscribirse'}</button>`}
         </div>
       </div>
     </div>`;
@@ -1831,7 +1867,7 @@ async function completeChapter(chId){
     await saveProgress(course.id,progress);
   }
   state._examSubmitted=false; state.examAnswers={};
-  if(progress.completedChapters.length===course.chapters.length){ showCertificate(); return; }
+  if(progress.completedChapters.length===course.chapters.length){ await showCertificate(course.id); return; }
   const nextIdx=state.currentChapter+1;
   if(nextIdx<course.chapters.length){
     showToast('✅ ¡Capítulo completado! Avanzas al siguiente.','success');
@@ -1842,15 +1878,47 @@ async function completeChapter(chId){
 // ══════════════════════════════════════════════
 // CERTIFICATE
 // ══════════════════════════════════════════════
-function showCertificate(){
-  const course=state.currentCourse;
+// Abre el certificado de un curso ya completado desde la grilla de cursos
+// (fuera del visor de capítulos), por ejemplo desde "Mis Cursos".
+async function openCertificateForCourse(courseId){
+  await showCertificate(courseId);
+}
+
+// Certificado PERSISTENTE: se guarda una sola vez por (estudiante, curso) con
+// un ID estable (certId), para que se pueda ver/descargar en cualquier momento
+// después y el admin pueda verificarlo/editarlo.
+async function getOrCreateCertificate(courseId){
+  const docId=studentId+'_'+courseId;
+  let cert=await fsGet('certificates',docId);
+  if(cert) return cert;
+
+  const course=CACHE.courses.find(c=>c.id===courseId);
   const student=CACHE.students.find(s=>s.id===studentId);
-  const name=student?student.name:'Estudiante';
-  drawCertificate(name,course.name);
+  const certId='WGM-'+Date.now().toString(36).toUpperCase();
+  cert={
+    certId,
+    studentId,
+    courseId,
+    studentName: student?student.name:'Estudiante',
+    courseName: course?course.name:'Curso',
+    issuedAt: new Date().toISOString(),
+    edited:false
+  };
+  await fsSet('certificates',docId,cert);
+  CACHE.certificates=CACHE.certificates||[];
+  CACHE.certificates.push({id:docId,...cert});
+  return cert;
+}
+
+async function showCertificate(courseId){
+  courseId = courseId || (state.currentCourse&&state.currentCourse.id);
+  if(!courseId) return;
+  const cert=await getOrCreateCertificate(courseId);
+  drawCertificate(cert.studentName,cert.courseName,cert.certId,cert.issuedAt);
   document.getElementById('cert-overlay').classList.add('open');
 }
 
-function drawCertificate(studentName,courseName){
+function drawCertificate(studentName,courseName,certId,issuedAtIso){
   const canvas=document.getElementById('cert-canvas');
   const ctx=canvas.getContext('2d');
   const W=900,H=636;
@@ -1878,7 +1946,7 @@ function drawCertificate(studentName,courseName){
   ctx.strokeStyle='#D4A843'; ctx.lineWidth=2; ctx.beginPath(); ctx.moveTo(W/2-nl/2,262); ctx.lineTo(W/2+nl/2,262); ctx.stroke();
   ctx.fillStyle='rgba(240,237,232,0.7)'; ctx.font='18px sans-serif'; ctx.fillText('ha completado satisfactoriamente el curso:',W/2,310);
   ctx.fillStyle='#D4A843'; ctx.font='bold 28px serif'; ctx.fillText(courseName,W/2,360);
-  const dateStr=new Date().toLocaleDateString('es-PE',{year:'numeric',month:'long',day:'numeric'});
+  const dateStr=new Date(issuedAtIso||Date.now()).toLocaleDateString('es-PE',{year:'numeric',month:'long',day:'numeric'});
   ctx.fillStyle='rgba(240,237,232,0.5)'; ctx.font='14px sans-serif'; ctx.fillText('Otorgado el '+dateStr,W/2,420);
   ctx.strokeStyle=lg; ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(80,460); ctx.lineTo(W-80,460); ctx.stroke();
   [[W*0.25,'Director Académico','WinGYAJMaster'],[W*0.75,studentName,'Estudiante Certificado']].forEach(([x,l1,l2])=>{
@@ -1891,8 +1959,7 @@ function drawCertificate(studentName,courseName){
   ctx.fillStyle='rgba(212,168,67,0.1)'; ctx.fill();
   ctx.strokeStyle='#D4A843'; ctx.lineWidth=2; ctx.stroke();
   ctx.fillStyle='#D4A843'; ctx.font='bold 22px serif'; ctx.fillText('✦',W/2,518);
-  const certId='WGM-'+Date.now().toString(36).toUpperCase();
-  ctx.fillStyle='rgba(240,237,232,0.25)'; ctx.font='10px sans-serif'; ctx.fillText('ID: '+certId,W/2,620);
+  ctx.fillStyle='rgba(240,237,232,0.25)'; ctx.font='10px sans-serif'; ctx.fillText('ID: '+(certId||''),W/2,620);
 }
 
 function downloadCertificate(){
@@ -2415,6 +2482,7 @@ function switchAdmin(panel){
   else if(panel==='payments') renderPaymentsTable();
   else if(panel==='courses') renderCoursesAdmin();
   else if(panel==='students') renderStudentsTable();
+  else if(panel==='certificates') renderCertificatesTable();
   else if(panel==='teachers') { renderTeachersTable(); populateTeacherCoursesSelect(); }
   else if(panel==='add-course') resetCourseForm();
   else if(panel==='config') loadConfigPanel();
@@ -2541,6 +2609,121 @@ function renderStudentsTable(){
     </tr>`;
   });
 }
+
+// ══════════════════════════════════════════════
+// CERTIFICATES (admin)
+// ══════════════════════════════════════════════
+async function renderCertificatesTable(){
+  if(!requireAdmin()) return;
+  const t=document.getElementById('certificates-table');
+  t.innerHTML='<tr><th colspan="6" style="text-align:center;padding:2rem;color:var(--text2)">Cargando certificados…</th></tr>';
+  CACHE.certificates = await fsList('certificates');
+  if(!CACHE.certificates.length){
+    t.innerHTML='<tr><th>Estudiante</th><th>Curso</th><th>ID Certificado</th><th>Emitido</th><th>Editado</th><th>Acciones</th></tr>'+
+      '<tr><td colspan="6" style="text-align:center;color:var(--text2);padding:2rem">Aún no hay certificados emitidos. Usa "🔄 Buscar y generar" si ya tienes alumnos que completaron cursos.</td></tr>';
+    return;
+  }
+  const rows=[...CACHE.certificates].sort((a,b)=>new Date(b.issuedAt||0)-new Date(a.issuedAt||0));
+  t.innerHTML='<tr><th>Estudiante</th><th>Curso</th><th>ID Certificado</th><th>Emitido</th><th>Editado</th><th>Acciones</th></tr>'+
+    rows.map(c=>`<tr>
+      <td>${SEC.sanitize(c.studentName||'')}</td>
+      <td>${SEC.sanitize(c.courseName||'')}</td>
+      <td style="font-size:0.8rem;color:var(--gold)">${SEC.sanitize(c.certId||'')}</td>
+      <td>${c.issuedAt?new Date(c.issuedAt).toLocaleDateString('es-PE'):'—'}</td>
+      <td>${c.edited?'✏️ Sí':'—'}</td>
+      <td style="display:flex;gap:0.5rem">
+        <button class="btn btn-outline btn-sm" onclick="viewCertificateAdmin('${c.id}')">👁 Ver</button>
+        <button class="btn btn-outline btn-sm" onclick="openEditCertificateModal('${c.id}')">✏ Editar</button>
+      </td>
+    </tr>`).join('');
+}
+
+function viewCertificateAdmin(docId){
+  const c=CACHE.certificates.find(x=>x.id===docId); if(!c) return;
+  drawCertificate(c.studentName,c.courseName,c.certId,c.issuedAt);
+  document.getElementById('cert-overlay').classList.add('open');
+}
+
+function openEditCertificateModal(docId){
+  const c=CACHE.certificates.find(x=>x.id===docId); if(!c) return;
+  document.getElementById('ecert-docid').value=docId;
+  document.getElementById('ecert-name').value=c.studentName||'';
+  document.getElementById('ecert-course').value=c.courseName||'';
+  document.getElementById('ecert-date').value=c.issuedAt?c.issuedAt.slice(0,10):'';
+  document.getElementById('edit-cert-alert').innerHTML='';
+  showModal('edit-cert-modal');
+}
+
+async function saveCertificateEdit(){
+  const docId=document.getElementById('ecert-docid').value;
+  const studentName=SEC.str(document.getElementById('ecert-name').value,100);
+  const courseName=SEC.str(document.getElementById('ecert-course').value,150);
+  const dateVal=document.getElementById('ecert-date').value;
+  if(!studentName||!courseName){ showAlert('edit-cert-alert','Completa ambos campos.','error'); return; }
+  const issuedAt = dateVal ? new Date(dateVal+'T12:00:00').toISOString() : new Date().toISOString();
+  try{
+    await fsSet('certificates',docId,{studentName,courseName,issuedAt,edited:true});
+    const idx=CACHE.certificates.findIndex(x=>x.id===docId);
+    if(idx>-1) CACHE.certificates[idx]={...CACHE.certificates[idx],studentName,courseName,issuedAt,edited:true};
+    closeModal('edit-cert-modal');
+    showToast('✅ Certificado actualizado.','success');
+    renderCertificatesTable();
+  }catch(e){
+    console.error(e);
+    showAlert('edit-cert-alert','Error al guardar. Intenta de nuevo.','error');
+  }
+}
+
+// Busca en TODOS los estudiantes y cursos combinaciones 100% completadas que
+// aún no tienen certificado, y las crea. Útil para alumnos que terminaron
+// cursos antes de que existiera esta función.
+async function backfillCertificates(){
+  if(!requireAdmin()) return;
+  showAlert('cert-backfill-alert','🔍 Revisando progreso de todos los estudiantes…','success');
+  try{
+    const [allProgress, allCourses, allStudents, existingCerts] = await Promise.all([
+      fsList('progress'), fsList('courses'), fsList('students'), fsList('certificates')
+    ]);
+    const existingIds=new Set(existingCerts.map(c=>c.id));
+    let created=0;
+    for(const progDoc of allProgress){
+      const sid=progDoc.id;
+      const student=allStudents.find(s=>s.id===sid);
+      for(const key of Object.keys(progDoc)){
+        if(key==='id') continue;
+        if(!key.startsWith(sid+'_')) continue; // clave con forma "{studentId}_{courseId}"
+        const courseId=key.slice(sid.length+1);
+        const p=progDoc[key];
+        const course=allCourses.find(c=>c.id===courseId);
+        if(!course||!p||!Array.isArray(p.completedChapters)) continue;
+        const chLen=(course.chapters||[]).length;
+        if(!chLen || p.completedChapters.length<chLen) continue; // no completado al 100%
+        const docId=sid+'_'+courseId;
+        if(existingIds.has(docId)) continue; // ya tiene certificado
+        const certId='WGM-'+Date.now().toString(36).toUpperCase()+'-'+Math.random().toString(36).slice(2,5).toUpperCase();
+        const certData={
+          certId, studentId:sid, courseId,
+          studentName: student?student.name:'Estudiante',
+          courseName: course.name||'Curso',
+          issuedAt: new Date().toISOString(),
+          edited:false, backfilled:true
+        };
+        await fsSet('certificates',docId,certData);
+        existingIds.add(docId);
+        created++;
+      }
+    }
+    showAlert('cert-backfill-alert',
+      created>0?`✅ Se generaron ${created} certificado(s) nuevo(s) para alumnos que ya habían completado sus cursos.`
+                :'✅ Todo al día: no se encontraron cursos completados sin certificado.',
+      'success');
+    renderCertificatesTable();
+  }catch(e){
+    console.error(e);
+    showAlert('cert-backfill-alert','⚠️ Error al generar certificados. Intenta de nuevo.','error');
+  }
+}
+
 
 function openEditStudent(sid){
   if(!requireAdmin()) return;
