@@ -14,6 +14,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
+<script src="https://www.youtube.com/iframe_api"></script>
 <style>
 :root{
   --gold:#D4A843;--gold-light:#F5CC6B;--gold-dark:#A07820;
@@ -1652,7 +1653,10 @@ async function saveProgress(courseId, data) {
 function ensureProgress(courseId) {
   const key=studentId+'_'+courseId;
   if(!CACHE.progress[key]) CACHE.progress[key]={completedChapters:[],examScores:{}};
-  return CACHE.progress[key];
+  const p=CACHE.progress[key];
+  if(!p.watchedVideos) p.watchedVideos=[];
+  if(!p.materialsConfirmed) p.materialsConfirmed=[];
+  return p;
 }
 
 // ══════════════════════════════════════════════
@@ -1661,7 +1665,8 @@ function ensureProgress(courseId) {
 let state={
   currentCourse:null, currentChapter:0, currentView:'content',
   practiceResults:[], examAnswers:{}, proofFile:null, proofDataUrl:null,
-  editingCourseId:null, chapterCount:0, _pendingCourseId:null, _examSubmitted:false
+  editingCourseId:null, chapterCount:0, _pendingCourseId:null, _examSubmitted:false,
+  examTimeLeft:null, examTimerId:null
 };
 
 function renderCourseViewer() {
@@ -1684,6 +1689,7 @@ function renderCourseViewer() {
 }
 
 function selectChapter(idx) {
+  clearInterval(state.examTimerId);
   state.currentChapter=idx; state.currentView='content';
   state.practiceResults=[]; state.examAnswers={}; state._examSubmitted=false;
   document.querySelectorAll('.chapter-item').forEach((el,i)=>el.classList.toggle('active',i===idx));
@@ -1700,6 +1706,11 @@ function renderChapterContent() {
 
   if(state.currentView==='content') {
     const mats=(ch.materials||[]);
+    const hasVideo=!!(ch.videoId && ch.videoId.trim());
+    const videoWatched=progress.watchedVideos.includes(ch.id);
+    const needsMaterialsConfirm=mats.length>0;
+    const materialsConfirmed=progress.materialsConfirmed.includes(ch.id);
+
     const matsHtml=mats.length?`
     <div class="materials-section">
       <div class="materials-title">📁 Materiales del Capítulo (${mats.length})</div>
@@ -1712,7 +1723,27 @@ function renderChapterContent() {
         </div>
         <a href="${m.url}" target="_blank" class="material-btn">⬇ Abrir</a>
       </div>`).join('')}
+      ${needsMaterialsConfirm?`<label style="display:flex;align-items:center;gap:8px;margin-top:10px;font-size:0.85rem;color:var(--text2);cursor:pointer">
+        <input type="checkbox" id="matConfirm-${ch.id}" ${materialsConfirmed?'checked disabled':''} onchange="confirmMaterialsRead('${ch.id}')">
+        He terminado de revisar el/los material(es) de esta clase
+      </label>`:''}
     </div>`:'' ;
+
+    const videoHtml=hasVideo?`
+    <div class="materials-section" style="padding-bottom:1rem">
+      <div class="materials-title">🎬 Video de la Clase</div>
+      <div style="position:relative;padding-bottom:56.25%;height:0;overflow:hidden;border-radius:8px;border:1px solid var(--border)">
+        <div id="ytplayer-${ch.id}" style="position:absolute;top:0;left:0;width:100%;height:100%"></div>
+      </div>
+      <p id="videoStatus-${ch.id}" style="font-size:0.82rem;margin-top:6px;color:${videoWatched?'var(--success)':'var(--text2)'}">
+        ${videoWatched?'✅ Video completado':'▶ Mira el video completo para continuar'}
+      </p>
+    </div>`:'';
+
+    const missing=[];
+    if(hasVideo && !videoWatched) missing.push('terminar de ver el video');
+    if(needsMaterialsConfirm && !materialsConfirmed) missing.push('confirmar que revisaste el material');
+    const canContinue=missing.length===0;
 
     area.innerHTML=`
       <div class="content-header">
@@ -1721,14 +1752,66 @@ function renderChapterContent() {
         <h1 class="content-title">${SEC.sanitize(ch.title)}</h1>
         <span style="color:var(--text2);font-size:0.85rem">📚 ${SEC.sanitize(course.name)}</span>
       </div>
+      ${videoHtml}
       <div class="content-body">${SEC.sanitizeHTML(ch.content)}</div>
       ${matsHtml}
-      <div style="margin-top:2rem"><button class="btn btn-gold" onclick="startPractices()">➡ Ir a Prácticas</button></div>`;
+      <div style="margin-top:2rem">
+        <button class="btn btn-gold" id="continueBtn-${ch.id}" ${canContinue?'':'disabled'} onclick="startPractices()">➡ Continuar</button>
+        ${canContinue?'':`<p style="font-size:0.8rem;color:var(--text2);margin-top:6px">Debes ${missing.join(' y ')} para continuar.</p>`}
+      </div>`;
+
+    if(hasVideo) initYouTubePlayer(ch.id, ch.videoId);
   } else if(state.currentView==='practices') {
     renderPractices(ch);
   } else if(state.currentView==='exam') {
     renderExam(ch);
   }
+}
+
+// ══════════════════════════════════════════════
+// VIDEO (YouTube) — seguimiento de reproducción
+// ══════════════════════════════════════════════
+let _ytPlayers={};
+function initYouTubePlayer(chId, videoId){
+  const create=()=>{
+    if(!document.getElementById(`ytplayer-${chId}`)) return;
+    if(_ytPlayers[chId]){ try{ _ytPlayers[chId].destroy(); }catch(e){} }
+    _ytPlayers[chId]=new YT.Player(`ytplayer-${chId}`,{
+      videoId,
+      playerVars:{rel:0,modestbranding:1},
+      events:{
+        onStateChange:(e)=>{ if(e.data===YT.PlayerState.ENDED) markVideoWatched(chId); }
+      }
+    });
+  };
+  if(window.YT && window.YT.Player) create();
+  else {
+    const prevReady=window.onYouTubeIframeAPIReady;
+    window.onYouTubeIframeAPIReady=function(){ if(prevReady) prevReady(); create(); };
+  }
+}
+
+async function markVideoWatched(chId){
+  const course=state.currentCourse; if(!course) return;
+  const progress=ensureProgress(course.id);
+  if(!progress.watchedVideos.includes(chId)){
+    progress.watchedVideos.push(chId);
+    await saveProgress(course.id,progress);
+    showToast('✅ Video completado.','success');
+  }
+  if(state.currentCourse.chapters[state.currentChapter].id===chId) renderChapterContent();
+}
+
+async function confirmMaterialsRead(chId){
+  const checkbox=document.getElementById(`matConfirm-${chId}`);
+  if(!checkbox || !checkbox.checked) return;
+  const course=state.currentCourse; if(!course) return;
+  const progress=ensureProgress(course.id);
+  if(!progress.materialsConfirmed.includes(chId)){
+    progress.materialsConfirmed.push(chId);
+    await saveProgress(course.id,progress);
+  }
+  renderChapterContent();
 }
 
 function getMaterialIcon(type) {
@@ -1797,7 +1880,28 @@ function answerPractice(pIdx,optIdx,correct) {
   }
 }
 
-function startExam(){ state.currentView='exam'; state.examAnswers={}; state._examSubmitted=false; renderChapterContent(); }
+function startExam(){
+  state.currentView='exam'; state.examAnswers={}; state._examSubmitted=false;
+  state.examTimeLeft=20*60; // 20 minutos
+  renderChapterContent();
+  clearInterval(state.examTimerId);
+  state.examTimerId=setInterval(()=>{
+    if(state._examSubmitted){ clearInterval(state.examTimerId); return; }
+    state.examTimeLeft--;
+    const timerEl=document.getElementById('exam-timer');
+    if(timerEl) timerEl.textContent=formatExamTime(state.examTimeLeft);
+    if(state.examTimeLeft<=0){
+      clearInterval(state.examTimerId);
+      showToast('⏱ Tiempo agotado. Enviando examen automáticamente.','error');
+      submitExam(true);
+    }
+  },1000);
+}
+function formatExamTime(s){
+  s=Math.max(0,s);
+  const m=Math.floor(s/60), sec=s%60;
+  return `${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`;
+}
 
 function renderExam(ch) {
   const area=document.getElementById('content-area');
@@ -1813,10 +1917,13 @@ function renderExam(ch) {
     <div class="content-header">
       <div class="content-chapter-tag">Evaluación del Capítulo – ${SEC.sanitize(ch.title)}</div>
       <h1 class="content-title">Evaluación del Capítulo</h1>
-      <p style="color:var(--text2);font-size:0.88rem">Necesitas al menos 70% para aprobar.</p>
+      <p style="color:var(--text2);font-size:0.88rem">Nota mínima para aprobar: 14/20 (70%) · Tiempo límite: 20 minutos.</p>
     </div>
     <div class="exam-section">
-      <div class="exam-header"><span class="exam-title">📝 ${exam.length} Preguntas</span></div>
+      <div class="exam-header">
+        <span class="exam-title">📝 ${exam.length} Preguntas</span>
+        ${!submitted?`<span id="exam-timer" style="font-family:monospace;font-weight:700;color:var(--gold);font-size:1.1rem">${formatExamTime(state.examTimeLeft)}</span>`:''}
+      </div>
       ${exam.map((q,qi)=>`
       <div class="practice-card" style="margin-bottom:1rem">
         <p class="practice-q">${qi+1}. ${SEC.sanitize(q.q)}</p>
@@ -1833,16 +1940,20 @@ function renderExam(ch) {
       ${!submitted?`<button class="btn btn-gold" onclick="submitExam()">✔ Enviar Examen</button>`:''}
       <div id="exam-result"></div>
     </div>
-    <button class="btn btn-outline" style="margin-top:1rem" onclick="state.currentView='practices';state._examSubmitted=false;renderChapterContent()">← Volver a prácticas</button>`;
+    <button class="btn btn-outline" style="margin-top:1rem" onclick="clearInterval(state.examTimerId);state.currentView='practices';state._examSubmitted=false;renderChapterContent()">← Volver a prácticas</button>`;
   if(submitted) showExamResult(ch);
 }
 
 function selectExamAnswer(qi,oi){ if(state._examSubmitted) return; state.examAnswers[qi]=oi; renderChapterContent(); }
 
-function submitExam(){
+function submitExam(force){
   const ch=state.currentCourse.chapters[state.currentChapter];
-  if(Object.keys(state.examAnswers).length<(ch.exam||[]).length){ showToast('Responde todas las preguntas.','error'); return; }
-  state._examSubmitted=true; renderChapterContent();
+  if(!force && Object.keys(state.examAnswers).length<(ch.exam||[]).length){
+    showToast('Responde todas las preguntas.','error'); return;
+  }
+  state._examSubmitted=true;
+  clearInterval(state.examTimerId);
+  renderChapterContent();
 }
 
 function showExamResult(ch){
@@ -2294,10 +2405,20 @@ function renderTeacherClassesContent(){
         placeholder="Título del capítulo…" maxlength="100"
         style="background:var(--bg4);border:1px solid var(--border);color:var(--text);padding:7px 10px;border-radius:6px;width:100%">
     </div>
-    <div class="form-group" style="margin-bottom:0">
+    <div class="form-group" style="margin-bottom:0.6rem">
       <label style="font-size:0.82rem">Contenido</label>
       <textarea class="tch-content-area" id="tch-content-${c.id}-${ci}" maxlength="20000"
         placeholder="Escribe el contenido educativo de esta clase…">${SEC.sanitize(ch.content||'')}</textarea>
+    </div>
+    <div class="form-group" style="margin-bottom:0">
+      <label style="font-size:0.82rem">🎬 ID del video de YouTube (opcional)</label>
+      <input type="text" id="tch-video-${c.id}-${ci}" value="${SEC.sanitize(ch.videoId||'')}"
+        placeholder="Ej: TznEFwTAGgc  (solo el ID, no la URL completa)" maxlength="30"
+        style="background:var(--bg4);border:1px solid var(--border);color:var(--text);padding:7px 10px;border-radius:6px;width:100%">
+      <p style="font-size:0.72rem;color:var(--text2);margin-top:4px">
+        Sube el video a YouTube como "No listado" y copia solo el ID (lo que va después de <code>v=</code> en la URL).
+        Si lo dejas vacío, el capítulo no tendrá video ni bloqueo por video.
+      </p>
     </div>
   </div>`).join('');
 
@@ -2316,13 +2437,16 @@ async function saveChapterTeacher(courseId, chIdx){
   const course=CACHE.courses.find(c=>c.id===courseId); if(!course) return;
   const titleEl=document.getElementById(`tch-title-${courseId}-${chIdx}`);
   const contentEl=document.getElementById(`tch-content-${courseId}-${chIdx}`);
+  const videoEl=document.getElementById(`tch-video-${courseId}-${chIdx}`);
   const title=SEC.str(titleEl?titleEl.value:'',100);
   const content=SEC.str(contentEl?contentEl.value:'',20000);
+  const videoId=SEC.str(videoEl?videoEl.value:'',30).trim().replace(/[^a-zA-Z0-9_-]/g,'');
   if(!title){ showToast('El título no puede estar vacío.','error'); return; }
   const chapters=JSON.parse(JSON.stringify(course.chapters||[]));
   if(!chapters[chIdx]) return;
   chapters[chIdx].title=title;
   chapters[chIdx].content=content;
+  chapters[chIdx].videoId=videoId;
   try{
     await fsUpdate('courses',courseId,{chapters});
     course.chapters=chapters;
@@ -2334,8 +2458,8 @@ async function addChapterTeacher(courseId){
   if(!requireTeacher()) return;
   const course=CACHE.courses.find(c=>c.id===courseId); if(!course) return;
   const chapters=JSON.parse(JSON.stringify(course.chapters||[]));
-  if(chapters.length>=12){ showToast('Máximo 12 capítulos por curso.','error'); return; }
-  chapters.push({id:'ch_'+Date.now()+'_'+chapters.length,title:'Nuevo Capítulo',content:'',practices:[],exam:[],materials:[]});
+  if(chapters.length>=30){ showToast('Máximo 30 capítulos por curso.','error'); return; }
+  chapters.push({id:'ch_'+Date.now()+'_'+chapters.length,title:'Nuevo Capítulo',content:'',videoId:'',practices:[],exam:[],materials:[]});
   try{
     await fsUpdate('courses',courseId,{chapters});
     course.chapters=chapters;
