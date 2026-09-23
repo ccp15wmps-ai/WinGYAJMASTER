@@ -1185,6 +1185,24 @@ let _confirmCallback = null;
 // ══════════════════════════════════════════════
 // FIRESTORE HELPERS
 // ══════════════════════════════════════════════
+// ══════════════════════════════════════════════
+// UTILIDAD: extraer el ID de un video de YouTube a partir
+// de un link completo (varios formatos) o de un ID ya "pelado".
+// ══════════════════════════════════════════════
+function extractYouTubeId(input) {
+  const raw = (input || '').trim();
+  if (!raw) return '';
+  const patterns = [
+    /(?:youtube\.com\/watch\?v=|youtube\.com\/embed\/|youtube\.com\/shorts\/|youtu\.be\/)([a-zA-Z0-9_-]{6,20})/,
+    /^([a-zA-Z0-9_-]{6,20})$/
+  ];
+  for (const re of patterns) {
+    const m = raw.match(re);
+    if (m) return m[1];
+  }
+  return raw.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 20);
+}
+
 async function fsGet(col, docId) {
   try { const snap=await db.collection(col).doc(docId).get(); return snap.exists?snap.data():null; }
   catch(e) { console.error('fsGet',e); return null; }
@@ -2411,13 +2429,13 @@ function renderTeacherClassesContent(){
         placeholder="Escribe el contenido educativo de esta clase…">${SEC.sanitize(ch.content||'')}</textarea>
     </div>
     <div class="form-group" style="margin-bottom:0">
-      <label style="font-size:0.82rem">🎬 ID del video de YouTube (opcional)</label>
+      <label style="font-size:0.82rem">🎬 Video de YouTube (opcional)</label>
       <input type="text" id="tch-video-${c.id}-${ci}" value="${SEC.sanitize(ch.videoId||'')}"
-        placeholder="Ej: TznEFwTAGgc  (solo el ID, no la URL completa)" maxlength="30"
+        placeholder="Pega el link completo de YouTube o solo el ID" maxlength="200"
         style="background:var(--bg4);border:1px solid var(--border);color:var(--text);padding:7px 10px;border-radius:6px;width:100%">
       <p style="font-size:0.72rem;color:var(--text2);margin-top:4px">
-        Sube el video a YouTube como "No listado" y copia solo el ID (lo que va después de <code>v=</code> en la URL).
-        Si lo dejas vacío, el capítulo no tendrá video ni bloqueo por video.
+        Sube el video a YouTube como "No listado" y pega aquí el link completo (o solo el ID) — el sistema
+        extrae el ID automáticamente. Si lo dejas vacío, el capítulo no tendrá video ni bloqueo por video.
       </p>
     </div>
   </div>`).join('');
@@ -2440,7 +2458,7 @@ async function saveChapterTeacher(courseId, chIdx){
   const videoEl=document.getElementById(`tch-video-${courseId}-${chIdx}`);
   const title=SEC.str(titleEl?titleEl.value:'',100);
   const content=SEC.str(contentEl?contentEl.value:'',20000);
-  const videoId=SEC.str(videoEl?videoEl.value:'',30).trim().replace(/[^a-zA-Z0-9_-]/g,'');
+  const videoId=extractYouTubeId(videoEl?videoEl.value:'');
   if(!title){ showToast('El título no puede estar vacío.','error'); return; }
   const chapters=JSON.parse(JSON.stringify(course.chapters||[]));
   if(!chapters[chIdx]) return;
@@ -3188,6 +3206,14 @@ function addChapterBuilder(chData=null){
     </div>
     <div class="form-group"><label>Título</label><input type="text" id="ch-title-${idx}" placeholder="Ej: Fundamentos básicos" maxlength="100" value="${chData?SEC.sanitize(chData.title):''}"></div>
     <div class="form-group"><label>Contenido</label><textarea id="ch-content-${idx}" rows="4" placeholder="Escribe el contenido educativo..." maxlength="20000">${chData?SEC.sanitize(chData.content):''}</textarea></div>
+    <div class="form-group">
+      <label>🎬 Video de YouTube (opcional)</label>
+      <input type="text" id="ch-video-${idx}" placeholder="Pega el link completo de YouTube o solo el ID" maxlength="200" value="${chData?SEC.sanitize(chData.videoId||''):''}">
+      <p style="font-size:0.72rem;color:var(--text2);margin-top:4px">
+        Pega el link completo de YouTube (o solo el ID) — se extrae automáticamente. El PDF de la clase se
+        sube después de guardar el curso, desde la pestaña Materiales del Panel de Profesor.
+      </p>
+    </div>
     <div style="margin:1rem 0;font-weight:600;font-size:0.9rem">🏋 Prácticas</div>
     <div id="practices-builder-${idx}"></div>
     <div class="add-q-btn" onclick="addQuestion(${idx},'practice')">+ Agregar Práctica</div>
@@ -3429,10 +3455,12 @@ function parseCourseMarkdown(text){
   const reClaves = /^#\s*Claves?\s*de\s*respuestas/i;
   const reAnyH1 = /^#\s+\S/;
   const reConceptos = /^##\s*[\d.]*\s*Conceptos\s*b[aá]sicos/i;
-  const rePractica = /^##\s*[\d.]*\s*Pr[aá]ctica/i;
+  const rePractica = /^##\s*[\d.]*\s*Pr[aá]ctica(?!.*Examen)/i;
+  const reExamenCap = /^##\s*[\d.]*\s*Examen/i;
   const reH2 = /^##\s+\S/;
   const reQ = /^\*\*(\d+)\.\*\*\s*(.+)$/;
   const reOpt = /^([a-dA-D])\)\s*(.*)$/;
+  const reClavesChapterExam = /^###\s*Cap[ií]tulo\s*(\d+)\s*[—–\-]\s*Examen/i;
   const reClavesChapter = /^###\s*Cap[ií]tulo\s*(\d+)/i;
   const reClavesExamen = /^###\s*Examen\s*Final/i;
   const reKeyPairs = /(\d+)\s*-\s*([a-dA-D])/g;
@@ -3491,6 +3519,8 @@ function parseCourseMarkdown(text){
     let currentKey=null;
     clavesBlock.forEach(l=>{
       const t=l.text.trim(); if(!t) return;
+      const mChEx=reClavesChapterExam.exec(t);
+      if(mChEx){ currentKey='ch'+mChEx[1]+'_exam'; return; }
       const mCh=reClavesChapter.exec(t);
       if(mCh){ currentKey='ch'+mCh[1]; return; }
       if(reClavesExamen.test(t)){ currentKey='examen'; return; }
@@ -3507,24 +3537,36 @@ function parseCourseMarkdown(text){
     const num=reChapter.exec(lines[idx].text)[1];
     const title='Capítulo '+num+': '+(reChapter.exec(lines[idx].text)[2]||'').trim();
     const block=blockAfter(idx);
-    // Encontrar dónde empieza la sección de Práctica (H2) dentro del capítulo.
-    let pracIdx=block.length;
-    for(let i=1;i<block.length;i++){ if(block[i].header && reH2.test(block[i].text) && rePractica.test(block[i].text)){ pracIdx=i; break; } }
-    const content=block.slice(1,pracIdx).map(l=>l.text).join('\n').trim().slice(0,20000);
-    let practices=parseQuestions(block.slice(pracIdx));
+    // Encontrar todas las secciones H2 de "Práctica" y/o "Examen" dentro del capítulo (soporta ambas, en cualquier orden).
+    const sectionIdxs=[];
+    for(let i=1;i<block.length;i++){
+      if(!block[i].header || !reH2.test(block[i].text)) continue;
+      if(rePractica.test(block[i].text)) sectionIdxs.push({idx:i,type:'practice'});
+      else if(reExamenCap.test(block[i].text)) sectionIdxs.push({idx:i,type:'exam'});
+    }
+    const firstSectionIdx=sectionIdxs.length?sectionIdxs[0].idx:block.length;
+    const content=block.slice(1,firstSectionIdx).map(l=>l.text).join('\n').trim().slice(0,20000);
+    let practices=[], exam=[];
+    sectionIdxs.forEach((s,si)=>{
+      const end=si+1<sectionIdxs.length?sectionIdxs[si+1].idx:block.length;
+      const qs=parseQuestions(block.slice(s.idx,end));
+      if(s.type==='practice') practices=practices.concat(qs); else exam=exam.concat(qs);
+    });
     practices=applyAnswerKey(practices, clavesLineByChapter['ch'+num]);
+    exam=applyAnswerKey(exam, clavesLineByChapter['ch'+num+'_exam']);
     totalPractices+=practices.length;
-    chapters.push({title, content, practices, exam:[]});
+    chapters.push({title, content, practices, exam});
   });
 
-  // 6) Examen Final (único, de todo el curso) → se adjunta al último capítulo.
+  // 6) Examen Final (único, de todo el curso, formato antiguo) → se adjunta al último capítulo,
+  //    solo si ese capítulo no trajo ya su propio examen por sección "## Examen".
   let examAttachedTo=null;
   const examIdx=lines.findIndex(l=>l.header && reExamenFinal.test(l.text));
   if(examIdx>=0 && chapters.length){
     const examBlock=blockAfter(examIdx);
     let examQs=parseQuestions(examBlock);
     examQs=applyAnswerKey(examQs, clavesExamenFinal);
-    if(examQs.length){ chapters[chapters.length-1].exam=examQs; examAttachedTo=chapters.length-1; }
+    if(examQs.length && !chapters[chapters.length-1].exam.length){ chapters[chapters.length-1].exam=examQs; examAttachedTo=chapters.length-1; }
   }
 
   return {name:courseName, desc:desc.slice(0,500), chapters, totalPractices, examAttachedTo};
@@ -3560,6 +3602,7 @@ async function saveCourse(){
     const idx=cb.id.replace('chbuilder-','');
     const title=SEC.str(document.getElementById(`ch-title-${idx}`)?.value||'',100);
     const content=SEC.str(document.getElementById(`ch-content-${idx}`)?.value||'',20000);
+    const videoId=extractYouTubeId(document.getElementById(`ch-video-${idx}`)?.value||'');
     if(!title){ showToast(`Capítulo ${i+1}: necesita título.`,'error'); valid=false; return; }
     const practices=collectQuestions(idx,'practice');
     const exam=collectQuestions(idx,'exam');
@@ -3571,7 +3614,7 @@ async function saveCourse(){
         existingMaterials=existingCourse.chapters[i].materials||[];
       }
     }
-    chapters.push({id:'ch_'+(Date.now()+i)+'_'+i,title,content,practices,exam,materials:existingMaterials});
+    chapters.push({id:'ch_'+(Date.now()+i)+'_'+i,title,content,videoId,practices,exam,materials:existingMaterials});
   });
   if(!valid) return;
   const btn=document.querySelector('#admin-add-course .btn-gold');
