@@ -1684,7 +1684,7 @@ let state={
   currentCourse:null, currentChapter:0, currentView:'content',
   practiceResults:[], examAnswers:{}, proofFile:null, proofDataUrl:null,
   editingCourseId:null, chapterCount:0, _pendingCourseId:null, _examSubmitted:false,
-  examTimeLeft:null, examTimerId:null
+  examTimeLeft:null, examTimerId:null, newCourseId:null
 };
 
 function renderCourseViewer() {
@@ -1726,12 +1726,30 @@ function renderChapterContent() {
     const mats=(ch.materials||[]);
     const hasVideo=!!(ch.videoId && ch.videoId.trim());
     const videoWatched=progress.watchedVideos.includes(ch.id);
-    const needsMaterialsConfirm=mats.length>0;
+    const needsMaterialsConfirm=!!ch.pdfClase || mats.length>0;
     const materialsConfirmed=progress.materialsConfirmed.includes(ch.id);
 
-    const matsHtml=mats.length?`
+    const matsHtml=(mats.length||ch.pdfClase||ch.pdfExamen)?`
     <div class="materials-section">
-      <div class="materials-title">📁 Materiales del Capítulo (${mats.length})</div>
+      <div class="materials-title">📁 Materiales del Capítulo</div>
+      ${ch.pdfClase?`
+      <div class="material-item">
+        <div class="material-icon">📄</div>
+        <div class="material-info">
+          <div class="material-name">${SEC.sanitize(ch.pdfClase.name)}</div>
+          <div class="material-type">PDF de la Clase</div>
+        </div>
+        <a href="${ch.pdfClase.url}" target="_blank" class="material-btn">⬇ Abrir</a>
+      </div>`:''}
+      ${ch.pdfExamen?`
+      <div class="material-item">
+        <div class="material-icon">📄</div>
+        <div class="material-info">
+          <div class="material-name">${SEC.sanitize(ch.pdfExamen.name)}</div>
+          <div class="material-type">PDF del Examen (referencia)</div>
+        </div>
+        <a href="${ch.pdfExamen.url}" target="_blank" class="material-btn">⬇ Abrir</a>
+      </div>`:''}
       ${mats.map(m=>`
       <div class="material-item">
         <div class="material-icon">${getMaterialIcon(m.type)}</div>
@@ -2391,6 +2409,94 @@ function getFileTypeLabel(type){
   return 'Archivo';
 }
 
+// ══════════════════════════════════════════════
+// PDF DE CLASE / EXAMEN — Panel de Profesor (curso ya existente).
+// Espejo de pdfSlotBuilderHTML/uploadChapterPdfBuilder del Admin, pero
+// escribiendo directamente en Firestore en cada subida (el curso ya tiene ID real).
+// ══════════════════════════════════════════════
+function pdfSlotTeacherHTML(courseId, chIdx, slot, label, current){
+  return `
+    <div class="form-group" style="margin-bottom:0.6rem">
+      <label style="font-size:0.82rem">${label}</label>
+      <div id="tch-pdf-current-${slot}-${courseId}-${chIdx}" style="margin-bottom:6px">
+        ${current?`<span style="font-size:0.82rem;color:var(--success)">✅ ${SEC.sanitize(current.name)}</span>
+          <a href="${current.url}" target="_blank" style="font-size:0.78rem;margin-left:8px">Ver</a>
+          <button type="button" class="btn btn-danger btn-sm" style="margin-left:8px" onclick="removeChapterPdfTeacher('${courseId}',${chIdx},'${slot}')">✕ Quitar</button>`
+          :`<span style="font-size:0.78rem;color:var(--text2)">Sin archivo cargado.</span>`}
+      </div>
+      <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap">
+        <input type="file" id="tch-pdf-file-${slot}-${courseId}-${chIdx}" accept="application/pdf" style="flex:1;min-width:160px;font-size:0.82rem">
+        <div class="upload-progress" id="tch-pdf-prog-${slot}-${courseId}-${chIdx}" style="display:none;width:100%;margin-top:4px">
+          <div style="display:flex;justify-content:space-between;font-size:0.75rem;color:var(--gold);margin-bottom:2px">
+            <span>Subiendo...</span><span id="tch-pdf-prog-pct-${slot}-${courseId}-${chIdx}">0%</span>
+          </div>
+          <div style="height:6px;background:var(--bg3);border-radius:3px;overflow:hidden">
+            <div class="upload-progress-fill" id="tch-pdf-progfill-${slot}-${courseId}-${chIdx}" style="width:0%;height:100%"></div>
+          </div>
+        </div>
+        <button type="button" class="btn btn-success btn-sm" id="tch-pdf-btn-${slot}-${courseId}-${chIdx}" onclick="uploadChapterPdfTeacher('${courseId}',${chIdx},'${slot}')">⬆ Subir PDF</button>
+      </div>
+    </div>`;
+}
+
+async function uploadChapterPdfTeacher(courseId, chIdx, slot){
+  if(!requireTeacher()) return;
+  const fileInput=document.getElementById(`tch-pdf-file-${slot}-${courseId}-${chIdx}`);
+  const file=fileInput?fileInput.files[0]:null;
+  if(!file){ showToast('Selecciona un archivo PDF primero.','error'); return; }
+  if(file.type!=='application/pdf' && !/\.pdf$/i.test(file.name)){ showToast('El archivo debe ser un PDF.','error'); return; }
+  const check=SEC.validateFile(file,10);
+  if(!check.ok){ showToast(check.msg,'error'); return; }
+  const btn=document.getElementById(`tch-pdf-btn-${slot}-${courseId}-${chIdx}`);
+  const progEl=document.getElementById(`tch-pdf-prog-${slot}-${courseId}-${chIdx}`);
+  const progFill=document.getElementById(`tch-pdf-progfill-${slot}-${courseId}-${chIdx}`);
+  const progPct=document.getElementById(`tch-pdf-prog-pct-${slot}-${courseId}-${chIdx}`);
+  if(progEl) progEl.style.display='block';
+  if(btn){ btn.disabled=true; btn.textContent='Subiendo…'; }
+  try{
+    const safeName=file.name.replace(/[^a-zA-Z0-9._-]/g,'_');
+    const path=`materials/${courseId}/ch${chIdx}/${slot}_${Date.now()}_${safeName}`;
+    const url=await uploadFileToStorage(file,path,pct=>{
+      if(progFill) progFill.style.width=pct+'%';
+      if(progPct) progPct.textContent=Math.round(pct)+'%';
+    });
+    const course=CACHE.courses.find(c=>c.id===courseId); if(!course) return;
+    const chapters=JSON.parse(JSON.stringify(course.chapters||[]));
+    if(!chapters[chIdx]) return;
+    const fileData={name:file.name,url,uploadedAt:new Date().toISOString()};
+    if(slot==='clase') chapters[chIdx].pdfClase=fileData; else chapters[chIdx].pdfExamen=fileData;
+    await fsUpdate('courses',courseId,{chapters});
+    course.chapters=chapters;
+    const currentEl=document.getElementById(`tch-pdf-current-${slot}-${courseId}-${chIdx}`);
+    if(currentEl) currentEl.innerHTML=`<span style="font-size:0.82rem;color:var(--success)">✅ ${SEC.sanitize(file.name)}</span>
+      <a href="${url}" target="_blank" style="font-size:0.78rem;margin-left:8px">Ver</a>
+      <button type="button" class="btn btn-danger btn-sm" style="margin-left:8px" onclick="removeChapterPdfTeacher('${courseId}',${chIdx},'${slot}')">✕ Quitar</button>`;
+    if(fileInput) fileInput.value='';
+    showToast('✅ PDF subido correctamente.','success');
+  }catch(e){
+    console.error('upload pdf teacher error',e);
+    showToast(`❌ Error subiendo el PDF: ${e.message||'desconocido'}. Abre F12.`,'error');
+  }
+  if(progEl){ progEl.style.display='none'; if(progFill) progFill.style.width='0%'; }
+  if(btn){ btn.disabled=false; btn.textContent='⬆ Subir PDF'; }
+}
+
+async function removeChapterPdfTeacher(courseId, chIdx, slot){
+  if(!requireTeacher()) return;
+  showConfirm('¿Quitar PDF?','Esta acción no se puede deshacer.',async()=>{
+    try{
+      const course=CACHE.courses.find(c=>c.id===courseId); if(!course) return;
+      const chapters=JSON.parse(JSON.stringify(course.chapters||[]));
+      if(!chapters[chIdx]) return;
+      if(slot==='clase') chapters[chIdx].pdfClase=null; else chapters[chIdx].pdfExamen=null;
+      await fsUpdate('courses',courseId,{chapters});
+      course.chapters=chapters;
+      renderTeacherClassesContent();
+      showToast('PDF quitado.','success');
+    }catch(e){ showToast('❌ Error al quitar el PDF.','error'); }
+  });
+}
+
 // ────────────────────────────────────────────────────────
 // GESTIONAR CLASES (chapters: title + content)
 // ────────────────────────────────────────────────────────
@@ -2428,7 +2534,7 @@ function renderTeacherClassesContent(){
       <textarea class="tch-content-area" id="tch-content-${c.id}-${ci}" maxlength="20000"
         placeholder="Escribe el contenido educativo de esta clase…">${SEC.sanitize(ch.content||'')}</textarea>
     </div>
-    <div class="form-group" style="margin-bottom:0">
+    <div class="form-group" style="margin-bottom:0.6rem">
       <label style="font-size:0.82rem">🎬 Video de YouTube (opcional)</label>
       <input type="text" id="tch-video-${c.id}-${ci}" value="${SEC.sanitize(ch.videoId||'')}"
         placeholder="Pega el link completo de YouTube o solo el ID" maxlength="200"
@@ -2438,6 +2544,8 @@ function renderTeacherClassesContent(){
         extrae el ID automáticamente. Si lo dejas vacío, el capítulo no tendrá video ni bloqueo por video.
       </p>
     </div>
+    ${pdfSlotTeacherHTML(c.id,ci,'clase','📄 PDF de la Clase (desarrollo de clase)',ch.pdfClase)}
+    ${pdfSlotTeacherHTML(c.id,ci,'examen','📄 PDF del Examen (opcional, material de referencia)',ch.pdfExamen)}
   </div>`).join('');
 
   el.innerHTML=`
@@ -3197,6 +3305,8 @@ function addChapterBuilder(chData=null){
   if(state.chapterCount>=12){ showToast('Máximo 12 capítulos.','error'); return; }
   state.chapterCount++;
   const idx=state.chapterCount;
+  if(chData){ builderPdfs[idx]={clase:chData.pdfClase||null, examen:chData.pdfExamen||null}; }
+  else if(!builderPdfs[idx]){ builderPdfs[idx]={clase:null, examen:null}; }
   const div=document.createElement('div');
   div.className='chapter-builder'; div.id=`chbuilder-${idx}`;
   div.innerHTML=`
@@ -3210,10 +3320,11 @@ function addChapterBuilder(chData=null){
       <label>🎬 Video de YouTube (opcional)</label>
       <input type="text" id="ch-video-${idx}" placeholder="Pega el link completo de YouTube o solo el ID" maxlength="200" value="${chData?SEC.sanitize(chData.videoId||''):''}">
       <p style="font-size:0.72rem;color:var(--text2);margin-top:4px">
-        Pega el link completo de YouTube (o solo el ID) — se extrae automáticamente. El PDF de la clase se
-        sube después de guardar el curso, desde la pestaña Materiales del Panel de Profesor.
+        Pega el link completo de YouTube (o solo el ID) — se extrae automáticamente.
       </p>
     </div>
+    ${pdfSlotBuilderHTML(idx,'clase','📄 PDF de la Clase (desarrollo de clase)')}
+    ${pdfSlotBuilderHTML(idx,'examen','📄 PDF del Examen (opcional, material de referencia)')}
     <div style="margin:1rem 0;font-weight:600;font-size:0.9rem">🏋 Prácticas</div>
     <div id="practices-builder-${idx}"></div>
     <div class="add-q-btn" onclick="addQuestion(${idx},'practice')">+ Agregar Práctica</div>
@@ -3225,12 +3336,87 @@ function addChapterBuilder(chData=null){
   updateAddChBtn();
 }
 
-function removeChapter(idx){ const el=document.getElementById(`chbuilder-${idx}`); if(el) el.remove(); updateAddChBtn(); }
+function removeChapter(idx){ const el=document.getElementById(`chbuilder-${idx}`); if(el) el.remove(); delete builderPdfs[idx]; updateAddChBtn(); }
 function updateAddChBtn(){
   const count=document.querySelectorAll('.chapter-builder').length;
   const btn=document.getElementById('add-ch-btn');
   if(btn) btn.style.display=count>=12?'none':'';
   state.chapterCount=count;
+}
+
+// ══════════════════════════════════════════════
+// PDF DE CLASE / EXAMEN — disponible tanto en "Nuevo Curso" (Admin)
+// como en el editor de capítulos del Panel de Profesor.
+// ══════════════════════════════════════════════
+function pdfSlotBuilderHTML(idx, slot, label){
+  const current=(builderPdfs[idx]||{})[slot];
+  return `
+    <div class="form-group">
+      <label>${label}</label>
+      <div id="pdf-current-${slot}-${idx}" style="margin-bottom:6px">
+        ${current?`<span style="font-size:0.82rem;color:var(--success)">✅ ${SEC.sanitize(current.name)}</span>
+          <a href="${current.url}" target="_blank" style="font-size:0.78rem;margin-left:8px">Ver</a>
+          <button type="button" class="btn btn-danger btn-sm" style="margin-left:8px" onclick="removeChapterPdfBuilder(${idx},'${slot}')">✕ Quitar</button>`
+          :`<span style="font-size:0.78rem;color:var(--text2)">Sin archivo cargado.</span>`}
+      </div>
+      <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap">
+        <input type="file" id="pdf-file-${slot}-${idx}" accept="application/pdf" style="flex:1;min-width:160px;font-size:0.82rem">
+        <div class="upload-progress" id="pdf-prog-${slot}-${idx}" style="display:none;width:100%;margin-top:4px">
+          <div style="display:flex;justify-content:space-between;font-size:0.75rem;color:var(--gold);margin-bottom:2px">
+            <span>Subiendo...</span><span id="pdf-prog-pct-${slot}-${idx}">0%</span>
+          </div>
+          <div style="height:6px;background:var(--bg3);border-radius:3px;overflow:hidden">
+            <div class="upload-progress-fill" id="pdf-progfill-${slot}-${idx}" style="width:0%;height:100%"></div>
+          </div>
+        </div>
+        <button type="button" class="btn btn-success btn-sm" id="pdf-btn-${slot}-${idx}" onclick="uploadChapterPdfBuilder(${idx},'${slot}')">⬆ Subir PDF</button>
+      </div>
+    </div>`;
+}
+
+async function uploadChapterPdfBuilder(idx, slot){
+  if(!requireAdmin()) return;
+  const fileInput=document.getElementById(`pdf-file-${slot}-${idx}`);
+  const file=fileInput?fileInput.files[0]:null;
+  if(!file){ showToast('Selecciona un archivo PDF primero.','error'); return; }
+  if(file.type!=='application/pdf' && !/\.pdf$/i.test(file.name)){ showToast('El archivo debe ser un PDF.','error'); return; }
+  const check=SEC.validateFile(file,10);
+  if(!check.ok){ showToast(check.msg,'error'); return; }
+  const courseId=state.editingCourseId||state.newCourseId;
+  const btn=document.getElementById(`pdf-btn-${slot}-${idx}`);
+  const progEl=document.getElementById(`pdf-prog-${slot}-${idx}`);
+  const progFill=document.getElementById(`pdf-progfill-${slot}-${idx}`);
+  const progPct=document.getElementById(`pdf-prog-pct-${slot}-${idx}`);
+  if(progEl) progEl.style.display='block';
+  if(btn){ btn.disabled=true; btn.textContent='Subiendo…'; }
+  try{
+    const safeName=file.name.replace(/[^a-zA-Z0-9._-]/g,'_');
+    const path=`materials/${courseId}/ch${idx}/${slot}_${Date.now()}_${safeName}`;
+    const url=await uploadFileToStorage(file,path,pct=>{
+      if(progFill) progFill.style.width=pct+'%';
+      if(progPct) progPct.textContent=Math.round(pct)+'%';
+    });
+    if(!builderPdfs[idx]) builderPdfs[idx]={clase:null,examen:null};
+    builderPdfs[idx][slot]={name:file.name,url,uploadedAt:new Date().toISOString()};
+    const currentEl=document.getElementById(`pdf-current-${slot}-${idx}`);
+    if(currentEl) currentEl.innerHTML=`<span style="font-size:0.82rem;color:var(--success)">✅ ${SEC.sanitize(file.name)}</span>
+      <a href="${url}" target="_blank" style="font-size:0.78rem;margin-left:8px">Ver</a>
+      <button type="button" class="btn btn-danger btn-sm" style="margin-left:8px" onclick="removeChapterPdfBuilder(${idx},'${slot}')">✕ Quitar</button>`;
+    if(fileInput) fileInput.value='';
+    showToast('✅ PDF subido correctamente.','success');
+  }catch(e){
+    console.error('upload pdf error',e);
+    showToast(`❌ Error subiendo el PDF: ${e.message||'desconocido'}. Abre F12.`,'error');
+  }
+  if(progEl){ progEl.style.display='none'; if(progFill) progFill.style.width='0%'; }
+  if(btn){ btn.disabled=false; btn.textContent='⬆ Subir PDF'; }
+}
+
+function removeChapterPdfBuilder(idx, slot){
+  if(builderPdfs[idx]) builderPdfs[idx][slot]=null;
+  const currentEl=document.getElementById(`pdf-current-${slot}-${idx}`);
+  if(currentEl) currentEl.innerHTML=`<span style="font-size:0.78rem;color:var(--text2)">Sin archivo cargado.</span>`;
+  showToast('PDF quitado (se aplicará al guardar el curso).','success');
 }
 
 function addQuestion(chIdx,type,qData=null){
@@ -3614,7 +3800,7 @@ async function saveCourse(){
         existingMaterials=existingCourse.chapters[i].materials||[];
       }
     }
-    chapters.push({id:'ch_'+(Date.now()+i)+'_'+i,title,content,videoId,practices,exam,materials:existingMaterials});
+    chapters.push({id:'ch_'+(Date.now()+i)+'_'+i,title,content,videoId,practices,exam,materials:existingMaterials,pdfClase:(builderPdfs[idx]||{}).clase||null,pdfExamen:(builderPdfs[idx]||{}).examen||null});
   });
   if(!valid) return;
   const btn=document.querySelector('#admin-add-course .btn-gold');
@@ -3628,7 +3814,9 @@ async function saveCourse(){
     showToast('✅ Curso actualizado.','success');
   } else {
     courseData.createdAt=new Date().toISOString();
-    await fsAdd('courses',courseData);
+    // Usamos el ID reservado en resetCourseForm() para que coincida con las rutas
+    // de Storage de los PDFs que ya se subieron durante la creación del curso.
+    await fsSet('courses',state.newCourseId,courseData);
     showToast('✅ Curso creado.','success');
   }
   if(btn){ btn.disabled=false; btn.textContent='💾 Guardar Curso'; }
@@ -3639,6 +3827,7 @@ function editCourse(id){
   switchAdmin('add-course');
   const c=CACHE.courses.find(c=>c.id===id); if(!c) return;
   state.editingCourseId=id;
+  builderPdfs={};
   document.getElementById('course-form-title').textContent='Editar Curso';
   document.getElementById('cf-name').value=c.name||'';
   document.getElementById('cf-desc').value=c.desc||'';
@@ -3664,13 +3853,18 @@ async function deleteCourse(id){
   renderCoursesAdmin();
 }
 
+let builderPdfs={}; // { [chapterBuilderIdx]: {clase:{name,url}, examen:{name,url}} } — para el curso que se está creando/editando en el formulario Admin
+
 function resetCourseForm(){
   state.editingCourseId=null; state.chapterCount=0; qCount=0;
+  state.newCourseId=db.collection('courses').doc().id; // ID reservado de antemano para poder subir PDFs antes de guardar
+  builderPdfs={};
   document.getElementById('course-form-title').textContent='Nuevo Curso';
   ['cf-name','cf-desc','cf-price','cf-cat','cf-icon'].forEach(id=>{ const el=document.getElementById(id); if(el) el.value=''; });
   const areaEl=document.getElementById('cf-area'); if(areaEl) areaEl.value='engineering';
   document.getElementById('chapters-builder').innerHTML='';
 }
+
 
 // ══════════════════════════════════════════════
 // CONFIGURACIÓN
