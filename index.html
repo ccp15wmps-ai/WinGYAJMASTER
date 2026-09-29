@@ -1034,13 +1034,14 @@ body::before {
 // ⚠️  PASO ÚNICO: PEGA AQUÍ TU FIREBASE CONFIG
 // ══════════════════════════════════════════════════════════════
 const firebaseConfig = {
-  apiKey: "AIzaSyAIN6CGAHbiUjJqUe2vQDbcmR1njrYwxoI",
+  apiKey: "PEGA_AQUI_TU_apiKey",
   authDomain: "wingyajmaster.firebaseapp.com",
   projectId: "wingyajmaster",
-  storageBucket: "wingyajmaster.firebasestorage.app",
-  messagingSenderId: "55931230816",
-  appId: "1:55931230816:web:db07b14b3f8441d2a50105"
+  storageBucket: "wingyajmaster.appspot.com",
+  messagingSenderId: "PEGA_AQUI_TU_messagingSenderId",
+  appId: "PEGA_AQUI_TU_appId"
 };
+
 firebase.initializeApp(firebaseConfig);
 const db = firebase.firestore();
 const storageRef = firebase.storage().ref();
@@ -1228,51 +1229,74 @@ async function fsList(col) {
 }
 
 // ══════════════════════════════════════════════
-// SUBIDA DE ARCHIVOS — Firebase Storage
-// (reemplaza la subida anterior a Cloudinary; usa el mismo bucket que Firestore)
+// CLOUDINARY UPLOAD — GRATIS 25 GB sin tarjeta
+// Cloud name   : dyipbuc4m
+// API Key      : 733655146246978
+// Upload preset: wingyaj_data (Unsigned)
+// IMPORTANTE: para que los PDFs abran, activa "Allow delivery of PDF and
+// ZIP files" en Cloudinary → Settings → Security (una sola vez).
 // ══════════════════════════════════════════════
+const CLOUDINARY_CONFIG = {
+  cloudName   : 'dyipbuc4m',
+  uploadPreset: 'wingyaj_data',
+  apiKey      : '733655146246978',
+};
+
 async function uploadFileToStorage(file, path, onProgress) {
+  if(onProgress) onProgress(3);
+
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('upload_preset', CLOUDINARY_CONFIG.uploadPreset);
+  formData.append('api_key',       CLOUDINARY_CONFIG.apiKey);
+  formData.append('public_id', path.replace(/[^a-zA-Z0-9/_.-]/g, '_'));
+
   return new Promise((resolve, reject) => {
-    const ref = storageRef.child(path);
-    const task = ref.put(file, { contentType: file.type || 'application/octet-stream' });
-    task.on('state_changed',
-      (snapshot) => {
-        if (onProgress && snapshot.totalBytes) {
-          onProgress(Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100));
-        }
-      },
-      (error) => {
-        reject(error);
-      },
-      async () => {
+    const xhr = new XMLHttpRequest();
+    const url  = 'https://api.cloudinary.com/v1_1/' + CLOUDINARY_CONFIG.cloudName + '/auto/upload';
+
+    xhr.upload.addEventListener('progress', e => {
+      if(e.lengthComputable && onProgress)
+        onProgress(Math.round((e.loaded / e.total) * 95));
+    });
+
+    xhr.addEventListener('load', () => {
+      if(xhr.status === 200) {
         try {
-          const url = await task.snapshot.ref.getDownloadURL();
-          if (onProgress) onProgress(100);
-          resolve(url);
-        } catch (e) {
-          reject(e);
+          const data = JSON.parse(xhr.responseText);
+          if(onProgress) onProgress(100);
+          resolve(data.secure_url);
+        } catch(e) {
+          reject(new Error('Respuesta invalida de Cloudinary'));
         }
+      } else {
+        let msg = 'Error ' + xhr.status;
+        try { msg = JSON.parse(xhr.responseText).error.message || msg; } catch(e2) {}
+        reject(new Error(msg));
       }
-    );
+    });
+
+    xhr.addEventListener('error', () => reject(new Error('Error de red. Verifica tu conexion.')));
+    xhr.open('POST', url);
+    xhr.send(formData);
   });
 }
 
 // Verifica si una URL recién subida es realmente accesible (detecta el caso
-// típico de reglas de Storage que no permiten lectura pública).
+// típico de Cloudinary bloqueando la entrega de PDFs por seguridad → 401).
 async function verifyFileAccessible(url) {
   try {
     const res = await fetch(url, { method: 'GET', mode: 'cors', cache: 'no-store' });
     return res.ok;
   } catch (e) {
     // Un error de red/CORS aquí casi siempre significa que el archivo
-    // no es públicamente accesible (revisar Reglas de Storage).
+    // no es públicamente accesible (bloqueo de seguridad de Cloudinary).
     return false;
   }
 }
 
-// Aviso específico: el PDF se subió pero el link no es accesible — normalmente
-// significa que las Reglas de Seguridad de lectura de Firebase Storage no
-// permiten acceso público (esta app no usa Firebase Auth para estudiantes).
+// Aviso específico: el PDF se subió pero Cloudinary está bloqueando su entrega
+// (restricción de seguridad por defecto para archivos PDF/ZIP).
 function showPdfBlockedWarning() {
   let b = document.getElementById('pdf-blocked-banner');
   if(!b){
@@ -1281,15 +1305,14 @@ function showPdfBlockedWarning() {
     b.style.cssText='position:fixed;top:60px;left:0;right:0;z-index:2000;background:#2A1608;border-bottom:2.5px solid #FF9800;padding:12px 20px;font-size:0.85rem;color:#F0E6D8;line-height:1.7;display:flex;align-items:flex-start;gap:12px';
     document.body.appendChild(b);
   }
-  b.innerHTML = '<div style="flex:1"><strong style="color:#FF9800">⚠️ El PDF se subió, pero el link no se pudo verificar como accesible</strong><br>' +
-    'Revisa tus Reglas de Seguridad de Firebase Storage: la carpeta <code>materials/</code> necesita permitir lectura pública ' +
-    '(<code>allow read: if true;</code>), ya que los estudiantes no inician sesión con Firebase Auth. Corrígelo en ' +
-    '<a href="https://console.firebase.google.com/project/wingyajmaster/storage/wingyajmaster.appspot.com/rules" target="_blank" style="color:#4FA3E0">Firebase Console → Storage → Rules</a>.' +
+  b.innerHTML = '<div style="flex:1"><strong style="color:#FF9800">⚠️ El PDF se subió, pero Cloudinary está bloqueando su entrega (error 401)</strong><br>' +
+    'Esto es una configuración de seguridad de tu cuenta de Cloudinary, no un error de la página. Corrígelo una sola vez: ' +
+    '<a href="https://cloudinary.com/console/settings/security" target="_blank" style="color:#4FA3E0">Cloudinary → Settings → Security</a> ' +
+    '→ activa <b>"Allow delivery of PDF and ZIP files"</b> → Guardar. Los PDFs ya subidos empezarán a abrir solos, sin volver a subirlos.' +
     '</div><button onclick="this.parentElement.remove()" style="background:none;border:none;color:#A09C94;cursor:pointer;font-size:1.3rem;padding:0 4px;flex-shrink:0">x</button>';
 }
 
-// Helper: banner de error de Firebase Storage (típicamente reglas de seguridad
-// que no permiten escritura, ya que esta app no usa Firebase Auth).
+// Helper: banner de error Cloudinary
 function showCloudinarySetupError(msg) {
   let b = document.getElementById('cld-err-banner');
   if(!b){
@@ -1298,11 +1321,10 @@ function showCloudinarySetupError(msg) {
     b.style.cssText='position:fixed;top:60px;left:0;right:0;z-index:2000;background:#0A1A08;border-bottom:2.5px solid #FF5E5E;padding:12px 20px;font-size:0.85rem;color:#D0CCC6;line-height:1.8;display:flex;align-items:flex-start;gap:12px';
     document.body.appendChild(b);
   }
-  b.innerHTML = '<div style="flex:1"><strong style="color:#FF5E5E">Error al subir archivo a Firebase Storage</strong><br>' +
+  b.innerHTML = '<div style="flex:1"><strong style="color:#FF5E5E">Error al subir archivo</strong><br>' +
     (msg ? '<b>Detalle:</b> ' + msg + '<br>' : '') +
-    'Esta app no usa Firebase Auth, así que tus Reglas de Seguridad de Storage deben permitir escritura sin autenticación ' +
-    '(al menos en la carpeta <code>materials/</code>). Revísalas en ' +
-    '<a href="https://console.firebase.google.com/project/wingyajmaster/storage/wingyajmaster.appspot.com/rules" target="_blank" style="color:#4FA3E0">Firebase Console → Storage → Rules</a>.' +
+    'Verifica que el Upload Preset <b>wingyaj_data</b> exista y sea <b>Unsigned</b> en ' +
+    '<a href="https://cloudinary.com/console/settings/upload" target="_blank" style="color:#4FA3E0">Cloudinary Settings</a>.' +
     '</div><button onclick="this.parentElement.remove()" style="background:none;border:none;color:#A09C94;cursor:pointer;font-size:1.3rem;padding:0 4px;flex-shrink:0">x</button>';
 }
 
@@ -2429,9 +2451,9 @@ function pdfSlotTeacherHTML(courseId, chIdx, slot, label, current){
     <div class="form-group" style="margin-bottom:0.6rem">
       <label style="font-size:0.82rem">${label}</label>
       <p style="font-size:0.7rem;color:var(--text2);margin:2px 0 6px">
-        📦 Los PDFs se guardan en Firebase Storage. Si al subir da error de permisos, revisa que tus
-        <a href="https://console.firebase.google.com/project/wingyajmaster/storage/wingyajmaster.appspot.com/rules" target="_blank" style="color:#4FA3E0">Reglas de Storage</a>
-        permitan escritura/lectura en la carpeta <code>materials/</code>.
+        ⚠️ Antes de subir PDFs por primera vez, activa una sola vez la entrega de PDFs en
+        <a href="https://cloudinary.com/console/settings/security" target="_blank" style="color:#4FA3E0">Cloudinary → Settings → Security</a>
+        ("Allow delivery of PDF and ZIP files"), o los links darán error 401 al abrirlos.
       </p>
       <div id="tch-pdf-current-${slot}-${courseId}-${chIdx}" style="margin-bottom:6px">
         ${current?`<span style="font-size:0.82rem;color:var(--success)">✅ ${SEC.sanitize(current.name)}</span>
@@ -3370,9 +3392,9 @@ function pdfSlotBuilderHTML(idx, slot, label){
     <div class="form-group">
       <label>${label}</label>
       <p style="font-size:0.7rem;color:var(--text2);margin:2px 0 6px">
-        📦 Los PDFs se guardan en Firebase Storage. Si al subir da error de permisos, revisa que tus
-        <a href="https://console.firebase.google.com/project/wingyajmaster/storage/wingyajmaster.appspot.com/rules" target="_blank" style="color:#4FA3E0">Reglas de Storage</a>
-        permitan escritura/lectura en la carpeta <code>materials/</code>.
+        ⚠️ Antes de subir PDFs por primera vez, activa una sola vez la entrega de PDFs en
+        <a href="https://cloudinary.com/console/settings/security" target="_blank" style="color:#4FA3E0">Cloudinary → Settings → Security</a>
+        ("Allow delivery of PDF and ZIP files"), o los links darán error 401 al abrirlos.
       </p>
       <div id="pdf-current-${slot}-${idx}" style="margin-bottom:6px">
         ${current?`<span style="font-size:0.82rem;color:var(--success)">✅ ${SEC.sanitize(current.name)}</span>
