@@ -309,12 +309,28 @@ tr:hover td{background:rgba(255,255,255,0.02);}
 .pay-type-option .pt-name{font-size:0.8rem;font-weight:600;}
 .pay-type-option .pt-sub{font-size:0.72rem;color:var(--text2);}
 
+.mobile-sidebar-toggle{display:none;}
+.mobile-sidebar-backdrop{display:none;}
 @media(max-width:768px){
-  .course-layout,.admin-layout,.teacher-layout{grid-template-columns:1fr;}
-  .sidebar,.admin-sidebar,.teacher-sidebar{display:none;}
+  .live-yt-grid{grid-template-columns:1fr!important;}
+  .course-layout,.admin-layout,.teacher-layout{grid-template-columns:1fr;position:relative;}
+  .sidebar,.admin-sidebar,.teacher-sidebar{
+    display:none;position:fixed;top:0;left:0;bottom:0;width:82%;max-width:320px;
+    z-index:1500;overflow-y:auto;box-shadow:6px 0 24px rgba(0,0,0,0.5);
+    background:var(--bg2);padding-top:3.5rem;
+  }
+  .sidebar.mobile-open,.admin-sidebar.mobile-open,.teacher-sidebar.mobile-open{display:block;}
   .content-area{padding:1.5rem;}
   .areas-grid{grid-template-columns:1fr;}
   .pay-type-grid{grid-template-columns:1fr 1fr;}
+  .mobile-sidebar-toggle{
+    display:flex;align-items:center;gap:6px;position:fixed;top:12px;left:12px;z-index:1400;
+    background:var(--bg3);border:1px solid var(--border);color:var(--text);
+    padding:8px 14px;border-radius:8px;font-size:0.85rem;cursor:pointer;
+  }
+  .mobile-sidebar-backdrop.open{
+    display:block;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:1499;
+  }
 }
 
 /* ── LOGO NAV ─────────────────────────────── */
@@ -432,6 +448,7 @@ body::before {
 <section class="page" id="page-course">
   <div class="course-layout">
     <div class="sidebar" id="course-sidebar">
+      <button id="live-nav-btn" class="chapter-item" style="width:100%;text-align:left;border:none;background:none;color:var(--gold);font-weight:600" onclick="showLiveSessionsView()">🔴 Clases en Vivo</button>
       <p class="sidebar-title">Capítulos</p>
       <div id="chapters-list"></div>
     </div>
@@ -491,6 +508,7 @@ body::before {
       </div>
       <div class="teacher-menu-item active" onclick="switchTeacher('courses')" data-panel="courses">📚 Mis Cursos</div>
       <div class="teacher-menu-item" onclick="switchTeacher('classes')"    data-panel="classes">📖 Gestionar Clases</div>
+      <div class="teacher-menu-item" onclick="switchTeacher('live')"       data-panel="live">🔴 Clases en Vivo</div>
       <div class="teacher-menu-item" onclick="switchTeacher('materials')"  data-panel="materials">📁 Materiales</div>
       <div class="teacher-menu-item" onclick="switchTeacher('practices')"  data-panel="practices">🏋 Prácticas y Exámenes</div>
       <div style="padding:1rem 1.5rem;margin-top:1rem;border-top:1px solid rgba(79,163,224,0.2);">
@@ -512,6 +530,15 @@ body::before {
           <div id="tc-course-selector-classes"></div>
         </div>
         <div id="teacher-classes-content"></div>
+      </div>
+
+      <!-- ── CLASES EN VIVO ──────────────────────── -->
+      <div class="teacher-panel" id="teacher-live">
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:1rem;margin-bottom:1rem">
+          <h2 style="color:var(--info);margin:0">🔴 Clases en Vivo</h2>
+          <div id="tc-course-selector-live"></div>
+        </div>
+        <div id="teacher-live-content"></div>
       </div>
 
       <!-- ── MATERIALES ─────────────────────────── -->
@@ -990,6 +1017,15 @@ body::before {
   <div class="modal" style="max-width:800px;padding:1rem">
     <button class="modal-close" onclick="closeModal('material-viewer-modal')">✕</button>
     <div id="material-viewer-content" style="width:100%;min-height:400px;"></div>
+  </div>
+</div>
+
+<!-- ADMIN: CLASES EN VIVO MODAL -->
+<div class="modal-overlay" id="admin-live-modal">
+  <div class="modal" style="max-width:820px;max-height:85vh;overflow-y:auto">
+    <button class="modal-close" onclick="closeModal('admin-live-modal')">✕</button>
+    <h2 id="admin-live-modal-title" style="margin-bottom:1rem">🔴 Clases en Vivo</h2>
+    <div id="admin-live-modal-body"></div>
   </div>
 </div>
 
@@ -1742,7 +1778,8 @@ function selectChapter(idx) {
   clearInterval(state.examTimerId);
   state.currentChapter=idx; state.currentView='content';
   state.practiceResults=[]; state.examAnswers={}; state._examSubmitted=false;
-  document.querySelectorAll('.chapter-item').forEach((el,i)=>el.classList.toggle('active',i===idx));
+  document.getElementById('live-nav-btn')?.classList.remove('active');
+  document.querySelectorAll('#chapters-list .chapter-item').forEach((el,i)=>el.classList.toggle('active',i===idx));
   renderChapterContent();
 }
 
@@ -2219,6 +2256,7 @@ function switchTeacher(panel){
   document.querySelectorAll('.teacher-panel').forEach(el=>el.classList.toggle('active',el.id==='teacher-'+panel));
   if(panel==='courses')   renderTeacherCourses();
   else if(panel==='classes')   renderTeacherClasses();
+  else if(panel==='live')      renderTeacherLive();
   else if(panel==='materials') renderTeacherMaterials();
   else if(panel==='practices') renderTeacherPractices();
 }
@@ -2618,6 +2656,300 @@ async function saveChapterTeacher(courseId, chIdx){
   }catch(e){ showFirebasePermError('capítulo'); }
 }
 
+// ══════════════════════════════════════════════
+// CLASES EN VIVO — Zoom/Meet (link) o YouTube Live (incrustado + chat)
+// Se guardan en course.liveSessions[]. Las grabaciones se archivan en el
+// mismo registro (recordingType + recordingUrl), quedando disponibles
+// para ver después, sea cual sea la modalidad usada para dictarla.
+// ══════════════════════════════════════════════
+
+function getLiveSessions(course){ return (course.liveSessions||[]).slice().sort((a,b)=>new Date(a.scheduledAt)-new Date(b.scheduledAt)); }
+
+function formatLiveDate(iso){
+  try{
+    const d=new Date(iso);
+    return d.toLocaleString('es-PE',{weekday:'long',day:'numeric',month:'long',hour:'2-digit',minute:'2-digit'});
+  }catch(e){ return iso; }
+}
+
+function liveCountdownLabel(iso){
+  const diff=new Date(iso).getTime()-Date.now();
+  if(diff<=0) return null;
+  const mins=Math.floor(diff/60000);
+  if(mins<60) return `Empieza en ${mins} min`;
+  const hrs=Math.floor(mins/60);
+  if(hrs<24) return `Empieza en ${hrs}h ${mins%60}min`;
+  const days=Math.floor(hrs/24);
+  return `Empieza en ${days} día(s)`;
+}
+
+// ── PANEL DE PROFESOR ──────────────────────────
+function renderTeacherLive(){
+  const courses=getTeacherCourses();
+  const sel=document.getElementById('tc-course-selector-live');
+  const content=document.getElementById('teacher-live-content');
+  if(!courses.length){ if(sel) sel.innerHTML=''; if(content) content.innerHTML='<p style="color:var(--text2)">No tienes cursos asignados.</p>'; return; }
+  buildCourseSelector('tc-course-selector-live','liveCourse','renderTeacherLiveContent()');
+  renderTeacherLiveContent();
+}
+
+function renderTeacherLiveContent(){
+  const courses=getTeacherCourses();
+  const c=courses.find(c=>c.id===tcState.liveCourse)||courses[0];
+  const content=document.getElementById('teacher-live-content');
+  if(!c){ content.innerHTML=''; return; }
+  content.innerHTML=liveManagerHTML(c.id);
+}
+
+// Compartido por Admin y Profesor — misma UI, mismos datos.
+function liveManagerHTML(courseId){
+  const course=CACHE.courses.find(c=>c.id===courseId); if(!course) return '<p style="color:var(--text2)">Curso no encontrado.</p>';
+  const sessions=getLiveSessions(course);
+  const now=Date.now();
+  const upcoming=sessions.filter(s=>new Date(s.scheduledAt).getTime()>=now || !s.recordingUrl);
+  const past=sessions.filter(s=>new Date(s.scheduledAt).getTime()<now);
+  return `
+  <div style="background:rgba(79,163,224,0.06);border:1px solid rgba(79,163,224,0.18);border-radius:8px;padding:10px 14px;margin-bottom:1rem;font-size:0.8rem;color:var(--text2)">
+    Programa una clase en vivo por Zoom/Google Meet (pegando el link de la reunión) o por YouTube Live (pegando el ID del video en vivo, se incrusta con su chat). En ambos casos puedes guardar el link/ID de la grabación después, para que quede archivada.
+  </div>
+  <div id="live-form-${courseId}" style="background:var(--bg3);border:1px solid var(--border);border-radius:var(--rad);padding:1.25rem;margin-bottom:1.5rem">
+    <h3 style="margin:0 0 0.75rem;font-size:1rem">➕ Nueva Clase en Vivo</h3>
+    <div class="form-group"><label>Título</label><input type="text" id="live-title-${courseId}" placeholder="Ej: Sesión en vivo — Módulo 2" maxlength="120"></div>
+    <div class="form-group">
+      <label>Modalidad</label>
+      <select id="live-type-${courseId}" onchange="toggleLiveTypeFields('${courseId}')" style="background:var(--bg4);border:1px solid var(--border);color:var(--text);padding:8px 10px;border-radius:6px;width:100%">
+        <option value="meet">🎦 Zoom / Google Meet (link de reunión, interacción directa)</option>
+        <option value="youtube">▶️ YouTube Live (incrustado + chat en vivo)</option>
+      </select>
+    </div>
+    <div class="form-group" id="live-meet-field-${courseId}">
+      <label>Link de la reunión (Zoom / Google Meet)</label>
+      <input type="text" id="live-link-${courseId}" placeholder="https://meet.google.com/xxx-xxxx-xxx o https://zoom.us/j/...">
+    </div>
+    <div class="form-group" id="live-yt-field-${courseId}" style="display:none">
+      <label>Link o ID del video de YouTube Live</label>
+      <input type="text" id="live-ytid-${courseId}" placeholder="Pega el link completo de YouTube o solo el ID">
+    </div>
+    <div class="form-group"><label>Fecha y hora</label><input type="datetime-local" id="live-date-${courseId}"></div>
+    <div class="form-group"><label>Módulo relacionado (opcional)</label><input type="text" id="live-module-${courseId}" placeholder="Ej: Módulo 2" maxlength="80"></div>
+    <button class="btn btn-gold btn-sm" onclick="addLiveSession('${courseId}')">➕ Programar Clase en Vivo</button>
+  </div>
+
+  <h3 style="font-size:1rem;margin-bottom:0.5rem">📅 Próximas / Sin grabación (${upcoming.length})</h3>
+  <div id="live-list-upcoming-${courseId}" style="margin-bottom:1.5rem">
+    ${upcoming.length?upcoming.map(s=>liveSessionEditorRow(courseId,s)).join(''):'<p style="color:var(--text2);font-size:0.85rem">No hay clases en vivo programadas.</p>'}
+  </div>
+
+  <h3 style="font-size:1rem;margin-bottom:0.5rem">📼 Archivadas con grabación (${past.filter(s=>s.recordingUrl).length})</h3>
+  <div id="live-list-past-${courseId}">
+    ${past.filter(s=>s.recordingUrl).length?past.filter(s=>s.recordingUrl).map(s=>liveSessionEditorRow(courseId,s)).join(''):'<p style="color:var(--text2);font-size:0.85rem">Aún no hay clases archivadas.</p>'}
+  </div>`;
+}
+
+function liveSessionEditorRow(courseId, s){
+  const typeLabel = s.type==='youtube' ? '▶️ YouTube Live' : '🎦 Zoom/Meet';
+  return `
+  <div style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:1rem;margin-bottom:0.75rem">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:1rem;flex-wrap:wrap">
+      <div>
+        <div style="font-weight:600">${SEC.sanitize(s.title)} <span style="font-size:0.72rem;color:var(--text2);font-weight:400">(${typeLabel})</span></div>
+        <div style="font-size:0.8rem;color:var(--text2)">${formatLiveDate(s.scheduledAt)}${s.moduleTitle?` · ${SEC.sanitize(s.moduleTitle)}`:''}</div>
+        ${s.type==='meet'?`<div style="font-size:0.78rem;margin-top:4px"><a href="${SEC.sanitize(s.link||'')}" target="_blank" style="color:#4FA3E0">${SEC.sanitize(s.link||'')}</a></div>`:`<div style="font-size:0.78rem;margin-top:4px;color:var(--text2)">ID video: ${SEC.sanitize(s.link||'')}</div>`}
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        <button class="btn btn-outline btn-sm" onclick="sendLiveReminderEmails('${courseId}','${s.id}')">✉️ Enviar recordatorio</button>
+        <button class="btn btn-danger btn-sm" onclick="deleteLiveSession('${courseId}','${s.id}')">✕ Eliminar</button>
+      </div>
+    </div>
+    <div style="margin-top:0.75rem;border-top:1px solid var(--border);padding-top:0.75rem">
+      <label style="font-size:0.78rem;color:var(--text2)">📼 Link o ID de la grabación (se guarda para verla después)</label>
+      <div style="display:flex;gap:6px;margin-top:4px;flex-wrap:wrap">
+        <input type="text" id="live-rec-${s.id}" placeholder="Link (Drive/Zoom) o ID de YouTube" value="${SEC.sanitize(s.recordingUrl||'')}" style="flex:1;min-width:180px">
+        <button class="btn btn-success btn-sm" onclick="saveLiveRecording('${courseId}','${s.id}')">💾 Guardar grabación</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+function toggleLiveTypeFields(courseId){
+  const type=document.getElementById(`live-type-${courseId}`).value;
+  document.getElementById(`live-meet-field-${courseId}`).style.display = type==='meet' ? 'block' : 'none';
+  document.getElementById(`live-yt-field-${courseId}`).style.display   = type==='youtube' ? 'block' : 'none';
+}
+
+async function addLiveSession(courseId){
+  if(!SEC.getSession() && !SEC.getTeacherSession()){ showToast('Debes iniciar sesión.','error'); return; }
+  const course=CACHE.courses.find(c=>c.id===courseId); if(!course) return;
+  const title=SEC.str(document.getElementById(`live-title-${courseId}`)?.value||'',120);
+  const type=document.getElementById(`live-type-${courseId}`)?.value||'meet';
+  const dateVal=document.getElementById(`live-date-${courseId}`)?.value||'';
+  const moduleTitle=SEC.str(document.getElementById(`live-module-${courseId}`)?.value||'',80);
+  if(!title){ showToast('Ponle un título a la clase en vivo.','error'); return; }
+  if(!dateVal){ showToast('Selecciona fecha y hora.','error'); return; }
+  let link='';
+  if(type==='meet'){
+    link=SEC.str(document.getElementById(`live-link-${courseId}`)?.value||'',300);
+    if(!link){ showToast('Pega el link de Zoom/Google Meet.','error'); return; }
+  } else {
+    link=extractYouTubeId(document.getElementById(`live-ytid-${courseId}`)?.value||'');
+    if(!link){ showToast('Pega el link o ID del video de YouTube Live.','error'); return; }
+  }
+  const session={ id:'live_'+Date.now()+'_'+Math.random().toString(36).slice(2,6), title, type, link,
+    scheduledAt:new Date(dateVal).toISOString(), moduleTitle, recordingType:type, recordingUrl:'' };
+  const liveSessions=[...(course.liveSessions||[]), session];
+  try{
+    await fsUpdate('courses',courseId,{liveSessions});
+    course.liveSessions=liveSessions;
+    showToast('✅ Clase en vivo programada.','success');
+    if(document.getElementById(`teacher-live-content`)) renderTeacherLiveContent();
+    if(document.getElementById(`admin-live-modal-body`)) renderAdminLiveModal(courseId);
+  }catch(e){ showToast('❌ No se pudo guardar. Revisa tus reglas de Firestore.','error'); }
+}
+
+async function saveLiveRecording(courseId, sessionId){
+  const course=CACHE.courses.find(c=>c.id===courseId); if(!course) return;
+  const val=SEC.str(document.getElementById(`live-rec-${sessionId}`)?.value||'',300);
+  const liveSessions=(course.liveSessions||[]).map(s=>{
+    if(s.id!==sessionId) return s;
+    const isYoutubeId=/^[a-zA-Z0-9_-]{6,20}$/.test(val.trim()) && !val.includes('/');
+    return {...s, recordingUrl: val.includes('youtube.com')||val.includes('youtu.be') ? extractYouTubeId(val) : val, recordingType: (val.includes('youtube.com')||val.includes('youtu.be')||isYoutubeId) ? 'youtube' : 'link'};
+  });
+  try{
+    await fsUpdate('courses',courseId,{liveSessions});
+    course.liveSessions=liveSessions;
+    showToast('✅ Grabación guardada.','success');
+    if(document.getElementById(`teacher-live-content`)) renderTeacherLiveContent();
+    if(document.getElementById(`admin-live-modal-body`)) renderAdminLiveModal(courseId);
+  }catch(e){ showToast('❌ No se pudo guardar la grabación.','error'); }
+}
+
+async function deleteLiveSession(courseId, sessionId){
+  showConfirm('¿Eliminar esta clase en vivo?','Esta acción no se puede deshacer.',async()=>{
+    const course=CACHE.courses.find(c=>c.id===courseId); if(!course) return;
+    const liveSessions=(course.liveSessions||[]).filter(s=>s.id!==sessionId);
+    try{
+      await fsUpdate('courses',courseId,{liveSessions});
+      course.liveSessions=liveSessions;
+      showToast('Clase en vivo eliminada.','success');
+      if(document.getElementById(`teacher-live-content`)) renderTeacherLiveContent();
+      if(document.getElementById(`admin-live-modal-body`)) renderAdminLiveModal(courseId);
+    }catch(e){ showToast('❌ No se pudo eliminar.','error'); }
+  });
+}
+
+// Envía un correo (reutilizando la configuración de EmailJS ya existente)
+// a cada alumno matriculado y aprobado en el curso.
+async function sendLiveReminderEmails(courseId, sessionId){
+  const course=CACHE.courses.find(c=>c.id===courseId); if(!course) return;
+  const session=(course.liveSessions||[]).find(s=>s.id===sessionId); if(!session) return;
+  const cfg=CACHE.config||{};
+  if(!(cfg.ejs_service&&cfg.ejs_template&&cfg.ejs_pubkey)){
+    showToast('⚠️ Configura EmailJS primero en Admin → Configuración → Notificaciones.','error');
+    return;
+  }
+  const recipients=[...new Map(
+    CACHE.payments.filter(p=>p.courseId===courseId&&p.status==='approved'&&p.email)
+      .map(p=>[p.email,p])
+  ).values()];
+  if(!recipients.length){ showToast('No hay alumnos matriculados en este curso todavía.','error'); return; }
+  showToast(`Enviando recordatorio a ${recipients.length} alumno(s)...`,'success');
+  const joinInfo = session.type==='meet' ? `Link: ${session.link}` : `Únete en tu curso: la clase se incrusta automáticamente en la sección "🔴 Clases en Vivo".`;
+  const msg=`📅 Recordatorio de clase en vivo\n\nCurso: ${course.name}\nClase: ${session.title}\nFecha: ${formatLiveDate(session.scheduledAt)}\n${joinInfo}`;
+  let sent=0, failed=0;
+  if(!window._ejsInit){ emailjs.init(cfg.ejs_pubkey); window._ejsInit=true; }
+  for(const p of recipients){
+    try{
+      await emailjs.send(cfg.ejs_service,cfg.ejs_template,{
+        to_email:p.email, to_name:p.name||'Estudiante',
+        student_name:p.name||'Estudiante', student_email:p.email,
+        course_name:course.name, course_price:'', date:formatLiveDate(session.scheduledAt),
+        message:msg
+      });
+      sent++;
+    }catch(e){ failed++; console.warn('reminder email failed for',p.email,e); }
+  }
+  showToast(`✅ ${sent} correo(s) enviado(s)${failed?`, ${failed} fallaron`:''}.`, failed?'error':'success');
+}
+
+// ── ACCESO DESDE ADMIN (modal, reutiliza la misma UI de arriba) ──
+function openAdminLiveManager(courseId){
+  if(!requireAdmin()) return;
+  document.getElementById('admin-live-modal-title').textContent='🔴 Clases en Vivo — '+((CACHE.courses.find(c=>c.id===courseId)||{}).name||'');
+  document.getElementById('admin-live-modal-body').dataset.courseId=courseId;
+  renderAdminLiveModal(courseId);
+  showModal('admin-live-modal');
+}
+function renderAdminLiveModal(courseId){
+  document.getElementById('admin-live-modal-body').innerHTML=liveManagerHTML(courseId);
+}
+
+// ── VISTA DEL ALUMNO ───────────────────────────
+function showLiveSessionsView(){
+  clearInterval(state.examTimerId);
+  state.currentView='live-sessions';
+  document.querySelectorAll('.chapter-item').forEach(el=>el.classList.remove('active'));
+  const btn=document.getElementById('live-nav-btn'); if(btn) btn.classList.add('active');
+  renderLiveSessionsView();
+}
+
+function renderLiveSessionsView(){
+  const course=state.currentCourse; if(!course) return;
+  const area=document.getElementById('content-area');
+  const sessions=getLiveSessions(course);
+  const now=Date.now();
+  const upcoming=sessions.filter(s=>new Date(s.scheduledAt).getTime()>=now-2*60*60*1000);
+  const recorded=sessions.filter(s=>s.recordingUrl);
+
+  const upcomingHtml=upcoming.length?upcoming.map(s=>{
+    const countdown=liveCountdownLabel(s.scheduledAt);
+    const isLive = Math.abs(new Date(s.scheduledAt).getTime()-now) < 2*60*60*1000 && new Date(s.scheduledAt).getTime()<=now;
+    const joinBtn = s.type==='meet'
+      ? `<a href="${SEC.sanitize(s.link||'')}" target="_blank" class="btn btn-gold">🔴 Unirse a la clase (Zoom/Meet)</a>`
+      : '';
+    const ytEmbed = s.type==='youtube' ? `
+      <div style="display:grid;grid-template-columns:2fr 1fr;gap:1rem;margin-top:1rem" class="live-yt-grid">
+        <div style="position:relative;padding-bottom:56.25%;height:0;overflow:hidden;border-radius:8px;border:1px solid var(--border)">
+          <iframe src="https://www.youtube.com/embed/${encodeURIComponent(s.link)}" style="position:absolute;top:0;left:0;width:100%;height:100%" frameborder="0" allow="autoplay; encrypted-media" allowfullscreen></iframe>
+        </div>
+        <div style="border-radius:8px;overflow:hidden;border:1px solid var(--border);min-height:280px">
+          <iframe src="https://www.youtube.com/live_chat?v=${encodeURIComponent(s.link)}&embed_domain=${encodeURIComponent(location.hostname)}" style="width:100%;height:100%;min-height:280px" frameborder="0"></iframe>
+        </div>
+      </div>` : '';
+    return `
+    <div class="materials-section">
+      <div class="materials-title">${isLive?'🔴 EN VIVO AHORA':'📅'} ${SEC.sanitize(s.title)}</div>
+      <p style="color:var(--text2);font-size:0.85rem">${formatLiveDate(s.scheduledAt)}${s.moduleTitle?` · ${SEC.sanitize(s.moduleTitle)}`:''}${countdown?` · ${countdown}`:''}</p>
+      ${joinBtn}
+      ${ytEmbed}
+    </div>`;
+  }).join(''):'<p style="color:var(--text2)">No hay clases en vivo programadas por ahora.</p>';
+
+  const recordedHtml=recorded.length?recorded.map(s=>{
+    const embed = s.recordingType==='youtube'
+      ? `<div style="position:relative;padding-bottom:56.25%;height:0;overflow:hidden;border-radius:8px;border:1px solid var(--border);margin-top:8px">
+           <iframe src="https://www.youtube.com/embed/${encodeURIComponent(s.recordingUrl)}" style="position:absolute;top:0;left:0;width:100%;height:100%" frameborder="0" allowfullscreen></iframe>
+         </div>`
+      : `<a href="${SEC.sanitize(s.recordingUrl)}" target="_blank" class="material-btn" style="display:inline-block;margin-top:6px">⬇ Ver grabación</a>`;
+    return `
+    <div class="material-item" style="display:block">
+      <div class="material-name">${SEC.sanitize(s.title)}</div>
+      <div class="material-type">${formatLiveDate(s.scheduledAt)}</div>
+      ${embed}
+    </div>`;
+  }).join(''):'<p style="color:var(--text2);font-size:0.85rem">Aún no hay clases grabadas.</p>';
+
+  area.innerHTML=`
+    <div class="content-header">
+      <h1 class="content-title">🔴 Clases en Vivo</h1>
+      <span style="color:var(--text2);font-size:0.85rem">📚 ${SEC.sanitize(course.name)}</span>
+    </div>
+    ${upcomingHtml}
+    <div class="materials-section" style="margin-top:1.5rem">
+      <div class="materials-title">📼 Clases Grabadas</div>
+      ${recordedHtml}
+    </div>`;
+}
+
 async function addChapterTeacher(courseId){
   if(!requireTeacher()) return;
   const course=CACHE.courses.find(c=>c.id===courseId); if(!course) return;
@@ -2873,6 +3205,7 @@ function renderCoursesAdmin(){
           <div style="color:var(--text2);font-size:0.85rem">${(c.chapters||[]).length} cap. · S/ ${parseFloat(c.price||0).toFixed(2)}</div>
         </div>
         <button class="btn btn-outline btn-sm" onclick="editCourse('${c.id}')">✏ Editar</button>
+        <button class="btn btn-outline btn-sm" onclick="openAdminLiveManager('${c.id}')">🔴 Vivo</button>
         <button class="btn btn-danger btn-sm" onclick="confirmDeleteCourse('${c.id}')">🗑</button>
       </div>`).join('')}
     </div>`;
