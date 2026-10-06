@@ -2897,15 +2897,23 @@ function renderLiveSessionsView(){
   const area=document.getElementById('content-area');
   const sessions=getLiveSessions(course);
   const now=Date.now();
-  const upcoming=sessions.filter(s=>new Date(s.scheduledAt).getTime()>=now-2*60*60*1000);
+  // Antes esto ocultaba por completo cualquier clase programada hace más de 2h,
+  // dejando al alumno sin ningún botón ni video. Ahora se muestran TODAS las
+  // clases sin grabación todavía (pasadas, en curso o futuras), con su estado.
+  const upcoming=sessions.filter(s=>!s.recordingUrl);
   const recorded=sessions.filter(s=>s.recordingUrl);
 
   const upcomingHtml=upcoming.length?upcoming.map(s=>{
     const countdown=liveCountdownLabel(s.scheduledAt);
-    const isLive = Math.abs(new Date(s.scheduledAt).getTime()-now) < 2*60*60*1000 && new Date(s.scheduledAt).getTime()<=now;
+    const schedMs=new Date(s.scheduledAt).getTime();
+    const isLive = Math.abs(schedMs-now) < 2*60*60*1000 && schedMs<=now;
+    const isPastLong = !isLive && schedMs < now;
+    const statusLabel = isLive ? '🔴 EN VIVO AHORA' : (isPastLong ? '✅ Finalizada' : '📅 Próxima');
+    const ytWatchUrl = `https://www.youtube.com/watch?v=${encodeURIComponent(s.link)}`;
     const joinBtn = s.type==='meet'
-      ? `<a href="${SEC.sanitize(s.link||'')}" target="_blank" class="btn btn-gold">🔴 Unirse a la clase (Zoom/Meet)</a>`
-      : '';
+      ? `<p style="margin:10px 0 4px"><a href="${SEC.sanitize(s.link||'')}" target="_blank" class="btn btn-gold">🔴 Unirse a la clase (Zoom/Meet)</a></p>
+         <p style="font-size:0.78rem;color:var(--text2);word-break:break-all">Link: <a href="${SEC.sanitize(s.link||'')}" target="_blank" style="color:#4FA3E0">${SEC.sanitize(s.link||'')}</a></p>`
+      : `<p style="margin:10px 0 4px"><a href="${ytWatchUrl}" target="_blank" class="btn btn-gold">▶️ Abrir en YouTube</a></p>`;
     const ytEmbed = s.type==='youtube' ? `
       <div style="display:grid;grid-template-columns:2fr 1fr;gap:1rem;margin-top:1rem" class="live-yt-grid">
         <div style="position:relative;padding-bottom:56.25%;height:0;overflow:hidden;border-radius:8px;border:1px solid var(--border)">
@@ -2917,7 +2925,7 @@ function renderLiveSessionsView(){
       </div>` : '';
     return `
     <div class="materials-section">
-      <div class="materials-title">${isLive?'🔴 EN VIVO AHORA':'📅'} ${SEC.sanitize(s.title)}</div>
+      <div class="materials-title">${statusLabel} ${SEC.sanitize(s.title)}</div>
       <p style="color:var(--text2);font-size:0.85rem">${formatLiveDate(s.scheduledAt)}${s.moduleTitle?` · ${SEC.sanitize(s.moduleTitle)}`:''}${countdown?` · ${countdown}`:''}</p>
       ${joinBtn}
       ${ytEmbed}
