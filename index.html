@@ -1229,7 +1229,7 @@ function extractYouTubeId(input) {
   const raw = (input || '').trim();
   if (!raw) return '';
   const patterns = [
-    /(?:youtube\.com\/watch\?v=|youtube\.com\/embed\/|youtube\.com\/shorts\/|youtu\.be\/)([a-zA-Z0-9_-]{6,20})/,
+    /(?:youtube\.com\/watch\?v=|youtube\.com\/embed\/|youtube\.com\/shorts\/|youtube\.com\/live\/|youtu\.be\/)([a-zA-Z0-9_-]{6,20})/,
     /^([a-zA-Z0-9_-]{6,20})$/
   ];
   for (const re of patterns) {
